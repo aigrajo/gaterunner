@@ -10,21 +10,11 @@ import aiohttp
 from urllib.parse import urlparse
 import json
 from bs4 import BeautifulSoup
+from map import COUNTRY_GEO, tag_attr_map
+import argparse
 
 def rewrite_html_resources(html_content, url_to_local):
     soup = BeautifulSoup(html_content, "html.parser")
-
-    tag_attr_map = {
-        'img': ['src', 'srcset'],
-        'script': ['src'],
-        'link': ['href'],
-        'iframe': ['src'],
-        'audio': ['src'],
-        'video': ['src', 'poster'],
-        'source': ['src', 'srcset'],
-        'embed': ['src'],
-        'object': ['data'],
-    }
 
     for tag, attrs in tag_attr_map.items():
         for element in soup.find_all(tag):
@@ -101,11 +91,21 @@ async def save_resource(session, url, output_dir):
         print(f'Failed to download {url}: {e}')
         return None
 
-async def save_page(url, output_dir):
+async def save_page(url, output_dir, geolocation=None):
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
+
+        context_args = {}
+        if geolocation:
+            context_args["geolocation"] = geolocation
+
+        context = await browser.new_context(**context_args)
+        if geolocation:
+            parsed_url_obj = urlparse(url)
+            origin = f'{parsed_url_obj.scheme}://{parsed_url_obj.netloc}'
+            await context.grant_permissions(["geolocation"], origin=origin)
+
         page = await context.new_page()
 
         # Capture all network requests
@@ -192,11 +192,20 @@ async def save_page(url, output_dir):
         await browser.close()
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <url>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('url', help='URL to download')
+    parser.add_argument('--country', help='Country code geolocation emulation (e.g. US, UK, FR)')
+    args = parser.parse_args()
 
-    url_to_save = sys.argv[1]
+    url_to_save = args.url
+    geo = None
+    if args.country:
+        country_code = args.country
+        if country_code in COUNTRY_GEO:
+            geo = COUNTRY_GEO[country_code]
+        else:
+            print('Country code is invalid')
+            sys.exit(1)
 
     # Default output dir: saved_<domain>
     parsed_url = urlparse(url_to_save)
@@ -205,7 +214,7 @@ def main():
 
     print(f'Output directory: {output_folder}')
 
-    asyncio.run(save_page(url_to_save, output_folder))
+    asyncio.run(save_page(url_to_save, output_folder, geolocation=geo))
 
 if __name__ == '__main__':
     main()
