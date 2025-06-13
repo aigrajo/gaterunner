@@ -1,11 +1,17 @@
-COUNTRY_GEO = {
-    "US": {"latitude": 37.0902, "longitude": -95.7129, "accuracy": 100},      # USA
-    "UK": {"latitude": 51.509865, "longitude": -0.118092, "accuracy": 100},   # UK
-    "FR": {"latitude": 48.864716, "longitude": 2.349014, "accuracy": 100},    # France
-    "DE": {"latitude": 51.1657, "longitude": 10.4515, "accuracy": 100},       # Germany
-    "JP": {"latitude": 35.652832, "longitude": 139.839478, "accuracy": 100},  # Japan
-    # Add more as needed
-}
+import csv
+
+COUNTRY_GEO = {}
+
+with open('country_geo.csv', newline='') as csvfile:
+    reader = csv.reader(csvfile)
+    next(reader)
+    for row in reader:
+        COUNTRY_GEO[row[0]] = {
+            'latitude': float(row[1]),
+            'longitude': float(row[2]),
+            'accuracy': int(row[3]),
+        }
+
 
 tag_attr_map = {
     'img': ['src', 'srcset'],
@@ -18,3 +24,10 @@ tag_attr_map = {
     'embed': ['src'],
     'object': ['data'],
 }
+
+# Debug
+def main():
+    print(COUNTRY_GEO)
+
+if __name__ == '__main__':
+    main()
