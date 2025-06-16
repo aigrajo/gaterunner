@@ -2,7 +2,7 @@ import csv
 
 COUNTRY_GEO = {}
 
-with open('country_geo.csv', newline='') as csvfile:
+with open('src/country_geo.csv', newline='') as csvfile:
     reader = csv.reader(csvfile)
     next(reader)
     for row in reader:
@@ -25,7 +25,7 @@ tag_attr_map = {
     'object': ['data'],
 }
 
-# Debug
+# Debug (Change path to country_geo.csv)
 def main():
     print(COUNTRY_GEO)
 

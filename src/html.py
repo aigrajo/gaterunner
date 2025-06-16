@@ -1,0 +1,34 @@
+import re
+from bs4 import BeautifulSoup
+from .map import tag_attr_map
+
+def rewrite_html_resources(html_content, url_to_local):
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    for tag, attrs in tag_attr_map.items():
+        for element in soup.find_all(tag):
+            for attr in attrs:
+                if element.has_attr(attr):
+                    original = element[attr]
+                    if attr == 'srcset':
+                        new_srcset = []
+                        for part in original.split(','):
+                            url_part = part.split(' ')[0]
+                            if url_part in url_to_local:
+                                part = part.replace(url_part, url_to_local[url_part])
+                            new_srcset.append(part)
+                        element[attr] = ', '.join(new_srcset)
+                    elif original in url_to_local:
+                        element[attr] = url_to_local[original]
+
+    for element in soup.find_all(style=True):
+        style = element['style']
+        urls = re.findall(r'url\(([^)]+)\)', style)
+        for url in urls:
+            clean_url = url.strip('\'"')
+            if clean_url in url_to_local:
+                local_url = url_to_local[clean_url]
+                style = style.replace(url, f'"{local_url}"')
+        element['style'] = style
+
+    return str(soup)
