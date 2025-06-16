@@ -28,11 +28,13 @@ async def save_page(url, output_dir, geolocation=None):
 
         # Capture all network requests
         resource_urls = set()
+        resource_headers = {}
 
         async def handle_request(request):
             if request.resource_type in ['document', 'stylesheet', 'script', 'image', 'font', 'media']:
                 print(f"[RESOURCE] {request.resource_type.upper()}: {request.url}")
                 resource_urls.add(request.url)
+                resource_headers[request.url] = dict(request.headers)
 
         page.on('request', handle_request)
 
@@ -48,6 +50,11 @@ async def save_page(url, output_dir, geolocation=None):
 
         # Take screenshot
         await page.screenshot(path=f"{output_dir}/screenshot.png", full_page=True)
+
+        # Write resource http headers
+        headers_path = os.path.join(output_dir, 'http_headers.json')
+        with open(headers_path, 'w', encoding='utf-8') as f:
+            json.dump(resource_headers, f, indent=2)
 
         scroll_script = """
             async () => {
