@@ -5,8 +5,6 @@ class GeolocationGate(GateBase):
     name = 'GeolocationGate'
 
     async def handle(self, page, context, geolocation=None, url=None):
-        print(geolocation)
-        print(url)
         if geolocation and url:
             parsed_url = urlparse(url)
             origin = f'{parsed_url.scheme}://{parsed_url.netloc}'
