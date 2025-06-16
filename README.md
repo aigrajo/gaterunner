@@ -2,21 +2,13 @@
 
 **Gatekey** is an automated web saving tool that captures complete webpages using Playwright.
 
-## Dependencies
+## Setup
 
-- Python 3.7+
-
-- Playwright
-
-- aiohttp
-
-- BeautifulSoup4
-
-Install with:
+Install dependencies:
 
 ```bash
 
-pip install playwright aiohttp beautifulsoup4
+pip install -r requirements.txt
 
 playwright install
 ```

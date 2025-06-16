@@ -1,0 +1,4 @@
+playwright
+aiohttp
+beautifulsoup4
+

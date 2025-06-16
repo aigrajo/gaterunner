@@ -2,7 +2,6 @@ import os
 import json
 import asyncio
 import aiohttp
-from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from .resources import save_resource
 from .html import rewrite_html_resources
