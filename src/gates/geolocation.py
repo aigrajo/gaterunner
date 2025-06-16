@@ -4,12 +4,13 @@ from urllib.parse import urlparse
 class GeolocationGate(GateBase):
     name = 'GeolocationGate'
 
-    async def handle(self, page, context, geolocation=None, url=None, country_code=None):
+    async def handle(self, page, context, geolocation=None, url=None):
+        print(geolocation)
+        print(url)
         if geolocation and url:
             parsed_url = urlparse(url)
             origin = f'{parsed_url.scheme}://{parsed_url.netloc}'
 
-            cc = country_code if country_code else "UNKNOWN"
             print(f"[GATE] Granted geolocation permissions: {geolocation}")
             await context.grant_permissions(["geolocation"], origin=origin)
 

@@ -7,22 +7,27 @@ from .resources import save_resource
 from .html import rewrite_html_resources
 from .gates import ALL_GATES
 
-async def run_gates(page, context, geolocation=None, url=None):
-    for gate in ALL_GATES:
-        handled = await gate.handle(page, context, geolocation=geolocation, url=url)
-        if handled:
-            print(f"[GATE] {gate.name} handled.")
+async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None):
 
-async def save_page(url, output_dir, geolocation=None):
+    for gate in ALL_GATES:
+        if gates_enabled.get(gate.name, True):
+            args = gate_args.get(gate.name, {})
+            await gate.handle(page, context, **args, url=url)
+
+
+async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
 
         context_args = {}
-        if geolocation:
-            context_args["geolocation"] = geolocation
+        if gate_args and 'GeolocationGate' in gate_args:
+            geo = gate_args['GeolocationGate'].get('geolocation')
+            if geo:
+                context_args['geolocation'] = geo
+                print(geo)
 
         context = await browser.new_context(**context_args)
-        await run_gates(None, context, geolocation=geolocation, url=url)
+        await run_gates(None, context, gates_enabled=gates_enabled, gate_args=gate_args, url=url)
 
         page = await context.new_page()
 
