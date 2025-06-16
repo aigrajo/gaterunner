@@ -24,7 +24,6 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
             geo = gate_args['GeolocationGate'].get('geolocation')
             if geo:
                 context_args['geolocation'] = geo
-                print(geo)
 
         context = await browser.new_context(**context_args)
         await run_gates(None, context, gates_enabled=gates_enabled, gate_args=gate_args, url=url)
