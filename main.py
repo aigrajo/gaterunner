@@ -2,7 +2,7 @@ import argparse
 import sys
 import asyncio
 from urllib.parse import urlparse
-from src.map import COUNTRY_GEO
+from src.map import COUNTRY_GEO, choose_ua
 from src.browser import save_page
 
 def main():
@@ -10,6 +10,7 @@ def main():
     parser.add_argument('url', help='URL to download')
     parser.add_argument('--country', help='Country code geolocation emulation (e.g. US, UK, FR)')
     parser.add_argument('--ref', help='Referrer header')
+    parser.add_argument('--ua', help='User-Agent header, e.g. Windows;;Chrome ')
     args = parser.parse_args()
 
     url_to_save = args.url
@@ -34,6 +35,13 @@ def main():
         gate_args['ReferrerGate'] = {'referrer': args.ref}
     else:
         gates_enabled['ReferrerGate'] = False
+
+    if args.ua:
+        gates_enabled['UserAgentGate'] = True
+        ua = choose_ua(args.ua)
+        gate_args['UserAgentGate'] = {'user_agent': ua}
+    else:
+        gates_enabled['UserAgentGate'] = False
 
     parsed_url = urlparse(url_to_save)
     domain = parsed_url.netloc.replace(':', '_')

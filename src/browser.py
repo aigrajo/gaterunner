@@ -30,10 +30,15 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
         browser = await p.chromium.launch(headless=True)
 
         context_args = {}
-        if gate_args and 'GeolocationGate' in gate_args:
-            geo = gate_args['GeolocationGate'].get('geolocation')
-            if geo:
-                context_args['geolocation'] = geo
+        if gate_args:
+            if 'GeolocationGate' in gate_args:
+                geo = gate_args['GeolocationGate'].get('geolocation')
+                if geo:
+                    context_args['geolocation'] = geo
+            if 'UserAgentGate' in gate_args:
+                user_agent = gate_args['UserAgentGate'].get('user_agent')
+                if user_agent:
+                    context_args['user_agent'] = user_agent
 
         context = await browser.new_context(**context_args)
         await run_gates(None, context, gates_enabled=gates_enabled, gate_args=gate_args, url=url)

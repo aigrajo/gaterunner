@@ -1,4 +1,6 @@
 import csv
+import json
+import random
 
 COUNTRY_GEO = {}
 
@@ -11,6 +13,19 @@ with open('src/country_geo.csv', newline='') as csvfile:
             'longitude': float(row[2]),
             'accuracy': int(row[3]),
         }
+
+def choose_ua(key):
+
+    with open('src/user-agents.json', newline='') as jsonfile:
+        ua_data = json.load(jsonfile)
+
+    if key not in ua_data or not ua_data[key]:
+        raise ValueError(f"No agents found in category: {key}")
+
+    ua_obj = random.choice(ua_data[key])
+    return ua_obj["userAgent"]
+
+
 
 RESOURCE_DIRS = {
     'image': 'images',
