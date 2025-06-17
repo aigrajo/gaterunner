@@ -47,7 +47,7 @@ def main():
     domain = parsed_url.netloc.replace(':', '_')
     output_folder = f'./data/saved_{domain}'
 
-    print(f'Output directory: {output_folder}')
+    print(f'[INFO] Output directory: {output_folder}')
     asyncio.run(save_page(url_to_save, output_folder, gates_enabled=gates_enabled, gate_args=gate_args))
 
 if __name__ == '__main__':

@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 from playwright.async_api import async_playwright
 from urllib.parse import urlparse
+
+from .gates.clienthints import send_ch
 from .html import rewrite_html_resources
 from .gates import ALL_GATES
 from .map import RESOURCE_DIRS
@@ -42,9 +44,17 @@ async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None)
         merged_headers = request.headers.copy()
         merged_headers.update(headers)
 
-        resource_request_headers[request.url] = dict(merged_headers)
+        # Remove client hints headers if applicable
+        filtered_headers = merged_headers.copy()
+        if gates_enabled.get("UserAgentGate", True):
+            client_hints = send_ch(str(gate_args.get("UserAgentGate")))
+            if not client_hints:
+                filtered_headers = {k: v for k, v in merged_headers.items() if not k.lower().startswith("sec-ch-ua")}
 
-        await route.continue_(headers=merged_headers)
+
+        resource_request_headers[request.url] = dict(filtered_headers)
+
+        await route.continue_(headers=filtered_headers)
 
     await context.route("**/*", route_handler)
 
