@@ -1,8 +1,14 @@
 class GateBase:
     name = "base"
 
-    async def handle(self, page, context):
+    async def handle(self, page, context, **kwargs):
         """
-        Try to bypass the gate on the given page.
+        For non-header actions
         """
-        raise NotImplementedError
+        pass
+
+    async def get_headers(self, **kwargs):
+        """
+        Return headers to spoof
+        """
+        return {}

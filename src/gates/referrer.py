@@ -3,9 +3,8 @@ from .base import GateBase
 class ReferrerGate(GateBase):
     name = "ReferrerGate"
 
-    async def handle(self, page, context, referrer=None, url=None):
+    async def get_headers(self, referrer=None, **kwargs):
         if referrer:
             print(f"[GATE] Set Referer Header: {referrer}")
-            await context.set_extra_http_headers({"Referer": referrer})
-            return True
-        return False
+            return {"referer": referrer}
+        return {}

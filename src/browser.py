@@ -20,10 +20,42 @@ def get_filename_from_url(url, ext=''):
     return f'{name}_{url_hash}{orig_ext}'
 
 async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None):
+    gates_enabled = gates_enabled or {}
+    gate_args = gate_args or {}
+
+    # Run all handle() methods
     for gate in ALL_GATES:
         if gates_enabled.get(gate.name, True):
             args = gate_args.get(gate.name, {})
             await gate.handle(page, context, **args, url=url)
+
+    # Collect headers
+    headers = {}
+    for gate in ALL_GATES:
+        if gates_enabled.get(gate.name, True):
+            args = gate_args.get(gate.name, {})
+            gate_headers = await gate.get_headers(**args, url=url)
+            headers.update(gate_headers)
+
+    # Send headers through one route
+    async def route_handler(route, request):
+        merged_headers = request.headers.copy()
+        merged_headers.update(headers)
+
+        resource_request_headers[request.url] = dict(merged_headers)
+
+        await route.continue_(headers=merged_headers)
+
+    await context.route("**/*", route_handler)
+
+
+# Capture all network requests and responses
+resource_urls = set()
+pending_responses = set()
+all_responses_handled = asyncio.Event()
+resource_request_headers = {}
+resource_response_headers = {}
+url_to_local = {}
 
 async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
     async with async_playwright() as p:
@@ -45,20 +77,11 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
 
         page = await context.new_page()
 
-        # Capture all network requests and responses
-        resource_urls = set()
-        pending_responses = set()
-        all_responses_handled = asyncio.Event()
-        resource_request_headers = {}
-        resource_response_headers = {}
-        url_to_local = {}
-
         async def handle_request(request):
             if request.resource_type in ['document', 'stylesheet', 'script', 'image', 'font', 'media']:
                 print(f"[RESOURCE] {request.resource_type.upper()}: {request.url}")
                 resource_urls.add(request.url)
                 pending_responses.add(request.url)
-                resource_request_headers[request.url] = dict(request.headers)
 
         async def handle_response(response):
 
