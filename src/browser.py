@@ -1,16 +1,23 @@
 import os
 import json
 import asyncio
+import hashlib
 from playwright.async_api import async_playwright
 from urllib.parse import urlparse
 from .html import rewrite_html_resources
 from .gates import ALL_GATES
 from .map import RESOURCE_DIRS
 
-def get_filename_from_url(url):
+def get_filename_from_url(url, ext=''):
     path = urlparse(url).path
-    filename = os.path.basename(path)
-    return filename or 'index.html'
+    filename = os.path.basename(path) or 'index'
+
+    # Add hash to ensure uniqueness
+    url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()[:8]
+    name, orig_ext = os.path.splitext(filename)
+    if not orig_ext and ext:
+        orig_ext = ext
+    return f'{name}_{url_hash}{orig_ext}'
 
 async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None):
     for gate in ALL_GATES:
