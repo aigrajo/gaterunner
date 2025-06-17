@@ -12,6 +12,14 @@ with open('src/country_geo.csv', newline='') as csvfile:
             'accuracy': int(row[3]),
         }
 
+RESOURCE_DIRS = {
+    'image': 'images',
+    'script': 'scripts',
+    'stylesheet': 'stylesheets',
+    'font': 'fonts',
+    'media': 'media',
+    'document': 'html',
+}
 
 tag_attr_map = {
     'img': ['src', 'srcset'],

@@ -1,19 +1,22 @@
 import os
 import json
 import asyncio
-import aiohttp
 from playwright.async_api import async_playwright
-from .resources import save_resource
+from urllib.parse import urlparse
 from .html import rewrite_html_resources
 from .gates import ALL_GATES
+from .map import RESOURCE_DIRS
+
+def get_filename_from_url(url):
+    path = urlparse(url).path
+    filename = os.path.basename(path)
+    return filename or 'index.html'
 
 async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None):
-
     for gate in ALL_GATES:
         if gates_enabled.get(gate.name, True):
             args = gate_args.get(gate.name, {})
             await gate.handle(page, context, **args, url=url)
-
 
 async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
     async with async_playwright() as p:
@@ -30,17 +33,72 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
 
         page = await context.new_page()
 
-        # Capture all network requests
+        # Capture all network requests and responses
         resource_urls = set()
-        resource_headers = {}
+        pending_responses = set()
+        all_responses_handled = asyncio.Event()
+        resource_request_headers = {}
+        resource_response_headers = {}
+        url_to_local = {}
 
         async def handle_request(request):
             if request.resource_type in ['document', 'stylesheet', 'script', 'image', 'font', 'media']:
                 print(f"[RESOURCE] {request.resource_type.upper()}: {request.url}")
                 resource_urls.add(request.url)
-                resource_headers[request.url] = dict(request.headers)
+                pending_responses.add(request.url)
+                resource_request_headers[request.url] = dict(request.headers)
+
+        async def handle_response(response):
+
+            url2 = response.url
+
+            if response.request.resource_type in ['document', 'stylesheet', 'script', 'image', 'font', 'media']:
+                # Generate a safe filename
+                resource_type = response.request.resource_type
+                subdir = RESOURCE_DIRS.get(resource_type, 'other')
+                ct = response.headers.get('content-type', '')
+                ext = ''
+                if 'text/css' in ct:
+                    ext = '.css'
+                elif 'javascript' in ct:
+                    ext = '.js'
+                elif 'image/' in ct:
+                    ext = '.' + ct.split('/')[1].split(';')[0]
+                elif 'font/' in ct:
+                    ext = '.' + ct.split('/')[1].split(';')[0]
+                elif 'html' in ct:
+                    ext = '.html'
+
+                resource_response_headers[url2] = dict(response.headers)
+
+                basename = get_filename_from_url(url2)
+                if not os.path.splitext(basename)[1] and ext:
+                    basename = basename + ext
+
+
+                # Compose full path
+                if subdir:
+                    dirpath = os.path.join(output_dir, subdir)
+                    os.makedirs(dirpath, exist_ok=True)
+                    filepath = os.path.join(dirpath, basename)
+                    url_to_local[url2] = os.path.join(subdir, basename)
+                else:
+                    filepath = os.path.join(output_dir, basename)
+                    url_to_local[url2] = basename
+
+                try:
+                    body = await response.body()
+                    with open(filepath, 'wb') as fi:
+                        fi.write(body)
+                except Exception as ex:
+                    print(f"[ERROR] Could not save {url2}: {ex}")
+
+            pending_responses.discard(url2)
+            if not pending_responses:
+                all_responses_handled.set()
 
         page.on('request', handle_request)
+        page.on('response', handle_response)
 
         print(f'[INFO] Loading page: {url}')
 
@@ -52,13 +110,23 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
             await browser.close()
             return
 
+        try:
+            await asyncio.wait_for(all_responses_handled.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            print('[ERROR] Timeout waiting for response.')
+
         # Take screenshot
         await page.screenshot(path=f"{output_dir}/screenshot.png", full_page=True)
 
-        # Write resource http headers
-        headers_path = os.path.join(output_dir, 'http_headers.json')
+        # Write resource http request headers
+        headers_path = os.path.join(output_dir, 'http_request_headers.json')
         with open(headers_path, 'w', encoding='utf-8') as f:
-            json.dump(resource_headers, f, indent=2)
+            json.dump(resource_request_headers, f, indent=2)
+
+        # Write resource http response headers
+        headers_path = os.path.join(output_dir, 'http_response_headers.json')
+        with open(headers_path, 'w', encoding='utf-8') as f:
+            json.dump(resource_response_headers, f, indent=2)
 
         scroll_script = """
             async () => {
@@ -93,21 +161,6 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
         html_path = os.path.join(output_dir, 'page.html')
         with open(html_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
-
-        # Save resources
-        async with aiohttp.ClientSession() as session:
-            tasks = []
-            for res_url in resource_urls:
-                task = save_resource(session, res_url, output_dir)
-                tasks.append(task)
-
-            results = await asyncio.gather(*tasks)
-
-            url_to_local = {}
-            for result in results:
-                if result:
-                    filename, original_url = result
-                    url_to_local[original_url] = filename
 
         # Rewrite HTML links (basic string replace)
         html_content = rewrite_html_resources(html_content, url_to_local)

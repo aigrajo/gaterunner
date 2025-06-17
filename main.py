@@ -28,7 +28,7 @@ def main():
     else:
         gates_enabled['GeolocationGate'] = False
 
-    # ReferrerGate
+    # Referrer Gate
     if args.ref:
         gates_enabled['ReferrerGate'] = True
         gate_args['ReferrerGate'] = {'referrer': args.ref}
