@@ -2,7 +2,7 @@ import argparse
 import sys
 import asyncio
 from urllib.parse import urlparse
-from src.map import COUNTRY_GEO, choose_ua
+from src.map import COUNTRY_GEO, choose_ua, jitter_country_location
 from src.browser import save_page
 
 def main():
@@ -22,7 +22,7 @@ def main():
         country_code = args.country
         if country_code in COUNTRY_GEO:
             gates_enabled['GeolocationGate'] = True
-            gate_args['GeolocationGate'] = {'geolocation': COUNTRY_GEO[country_code]}
+            gate_args['GeolocationGate'] = {'geolocation': jitter_country_location(country_code)}
         else:
             print('Country code is invalid')
             sys.exit(1)
