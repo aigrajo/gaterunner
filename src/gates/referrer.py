@@ -1,5 +1,6 @@
 from .base import GateBase
 
+# Adds referrer link to http requests
 class ReferrerGate(GateBase):
     name = "ReferrerGate"
 

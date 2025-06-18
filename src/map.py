@@ -2,8 +2,8 @@ import csv
 import json
 import random
 
+# Write geo data to dictionary
 COUNTRY_GEO = {}
-
 with open('src/country_geo.csv', newline='') as csvfile:
     reader = csv.reader(csvfile)
     next(reader)
@@ -14,6 +14,7 @@ with open('src/country_geo.csv', newline='') as csvfile:
             'accuracy': int(row[3]),
         }
 
+# Randomly select User-Agent string based off of category
 def choose_ua(key):
 
     with open('src/user-agents.json', newline='') as jsonfile:
@@ -26,7 +27,7 @@ def choose_ua(key):
     return ua_obj["userAgent"]
 
 
-
+# For organized file saving
 RESOURCE_DIRS = {
     'image': 'images',
     'script': 'scripts',
@@ -36,6 +37,7 @@ RESOURCE_DIRS = {
     'document': 'html',
 }
 
+# For html rewriting
 tag_attr_map = {
     'img': ['src', 'srcset'],
     'script': ['src'],

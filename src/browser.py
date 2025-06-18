@@ -51,9 +51,7 @@ async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None)
             if not client_hints:
                 filtered_headers = {k: v for k, v in merged_headers.items() if not k.lower().startswith("sec-ch-ua")}
 
-
         resource_request_headers[request.url] = dict(filtered_headers)
-
         await route.continue_(headers=filtered_headers)
 
     await context.route("**/*", route_handler)
@@ -67,10 +65,12 @@ resource_request_headers = {}
 resource_response_headers = {}
 url_to_local = {}
 
+# Save page resources
 async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
 
+        # Set context arguments
         context_args = {}
         if gate_args:
             if 'GeolocationGate' in gate_args:
@@ -81,8 +81,9 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
                 user_agent = gate_args['UserAgentGate'].get('user_agent')
                 if user_agent:
                     context_args['user_agent'] = user_agent
-
         context = await browser.new_context(**context_args)
+
+        # Set gates
         await run_gates(None, context, gates_enabled=gates_enabled, gate_args=gate_args, url=url)
 
         page = await context.new_page()
@@ -138,10 +139,12 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
                 except Exception as ex:
                     print(f"[ERROR] Could not save {url2}: {ex}")
 
+            # Wait until all resources are loaded
             pending_responses.discard(url2)
             if not pending_responses:
                 all_responses_handled.set()
 
+        # Load requests and responses
         page.on('request', handle_request)
         page.on('response', handle_response)
 

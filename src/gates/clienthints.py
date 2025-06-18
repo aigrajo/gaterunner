@@ -1,6 +1,7 @@
 import re
 import random
 
+# Identify brand and version
 def parse_chromium_ua(ua):
     # Patterns for common Chromium-based browsers
     patterns = [
@@ -21,6 +22,7 @@ def parse_chromium_ua(ua):
             return brand, version
     return None, None
 
+# Identify chromium version
 def parse_chromium_version(ua):
     # Chromium version is usually in Chrome/XX.XX or Chromium/XX.XX
     m = re.search(r'(?:Chrome|Chromium)/([0-9.]+)', ua)
@@ -28,6 +30,7 @@ def parse_chromium_version(ua):
         return m.group(1)
     return None
 
+# Generate client hints string from User-Agent string
 def generate_sec_ch_ua(ua):
     brand, brand_version = parse_chromium_ua(ua)
     chromium_version = parse_chromium_version(ua)
@@ -56,6 +59,7 @@ def generate_sec_ch_ua(ua):
     sec_ch_ua = ', '.join(f'"{b}";v="{v}"' for b, v in unique_brands)
     return sec_ch_ua
 
+# Determine if browser wants client hints
 def send_ch(ua):
     ua = ua.lower()
 

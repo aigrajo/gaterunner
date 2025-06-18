@@ -1,7 +1,7 @@
 from .base import GateBase
 from .clienthints import send_ch, generate_sec_ch_ua
 
-
+# Spoofs User-Agent string, optionally includes spoofing client hints string
 class UserAgentGate(GateBase):
     name = "UserAgentGate"
 

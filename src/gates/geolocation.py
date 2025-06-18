@@ -1,6 +1,7 @@
 from .base import GateBase
 from urllib.parse import urlparse
 
+# Sends browser geolocation data
 class GeolocationGate(GateBase):
     name = 'GeolocationGate'
 

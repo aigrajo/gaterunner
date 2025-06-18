@@ -1,3 +1,4 @@
+# Base class for gates, use to implement new gate bypassing
 class GateBase:
     name = "base"
 
