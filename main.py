@@ -11,6 +11,7 @@ def main():
     parser.add_argument('--country', help='Country code geolocation emulation (e.g. US, UK, FR)')
     parser.add_argument('--ref', help='Referrer header')
     parser.add_argument('--ua', help='User-Agent header, e.g. Windows;;Chrome ')
+    parser.add_argument('--lang', help='Language code')
     args = parser.parse_args()
 
     url_to_save = args.url
@@ -36,6 +37,7 @@ def main():
     else:
         gates_enabled['ReferrerGate'] = False
 
+    # User Agent Gate
     if args.ua:
         gates_enabled['UserAgentGate'] = True
         ua = choose_ua(args.ua)
@@ -46,6 +48,13 @@ def main():
     parsed_url = urlparse(url_to_save)
     domain = parsed_url.netloc.replace(':', '_')
     output_folder = f'./data/saved_{domain}'
+
+    # Language Gate
+    if args.lang:
+        gates_enabled['LanguageGate'] = True
+        gate_args['LanguageGate'] = {'language': args.lang}
+    else:
+        gates_enabled['LanguageGate'] = False
 
     print(f'[INFO] Output directory: {output_folder}')
     asyncio.run(save_page(url_to_save, output_folder, gates_enabled=gates_enabled, gate_args=gate_args))
