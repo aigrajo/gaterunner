@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import hashlib
+
 from playwright.async_api import async_playwright
 from urllib.parse import urlparse
 
@@ -52,7 +53,12 @@ async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None)
             if not client_hints:
                 filtered_headers = {k: v for k, v in merged_headers.items() if not k.lower().startswith("sec-ch-ua")}
 
+
+        resource_request_headers[request.url] =  {
+            "method": request.method,
+        }
         resource_request_headers[request.url] = dict(filtered_headers)
+
         await route.continue_(headers=filtered_headers)
 
     await context.route("**/*", route_handler)
@@ -121,6 +127,11 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
 
             url2 = response.url
 
+            resource_response_headers[url2] = {
+                "status_code": response.status,
+            }
+            resource_response_headers[url2].update(dict(response.headers))
+
             if response.request.resource_type in ['document', 'stylesheet', 'script', 'image', 'font', 'media']:
                 # Generate a safe filename
                 resource_type = response.request.resource_type
@@ -138,12 +149,16 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
                 elif 'html' in ct:
                     ext = '.html'
 
-                resource_response_headers[url2] = dict(response.headers)
-
                 basename = get_filename_from_url(url2)
                 if not os.path.splitext(basename)[1] and ext:
                     basename = basename + ext
 
+                request = response.request
+
+                resource_request_headers[request.url] = {
+                    "method": request.method,
+                }
+                resource_request_headers[request.url] = dict(request.headers)
 
                 # Compose full path
                 if subdir:
