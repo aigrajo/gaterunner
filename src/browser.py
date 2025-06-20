@@ -58,7 +58,7 @@ async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None)
         resource_request_headers[request.url] =  {
             "method": request.method,
         }
-        resource_request_headers[request.url] = dict(filtered_headers)
+        resource_request_headers[request.url].update(dict(filtered_headers))
 
         await route.continue_(headers=filtered_headers)
 
