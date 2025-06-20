@@ -59,6 +59,51 @@ def generate_sec_ch_ua(ua):
     sec_ch_ua = ', '.join(f'"{b}";v="{v}"' for b, v in unique_brands)
     return sec_ch_ua
 
+def parse_android_model(ua):
+    # Example: 'Android 13; Pixel 7 Build/'
+    m = re.search(r'Android [^;]+; ([^;]+) Build/', ua)
+    if m:
+        return m.group(1).strip()
+    return None
+
+def generate_sec_ch_ua_model(ua):
+    model = parse_android_model(ua)
+    return f'"{model}"' if model else '""'
+
+
+
+
+def parse_platform_version(ua):
+    if "Android" in ua:
+        m = re.search(r'Android ([0-9.]+)', ua)
+        if m:
+            return m.group(1)
+    elif "Windows NT" in ua:
+        m = re.search(r'Windows NT ([0-9.]+)', ua)
+        if m:
+            return m.group(1)
+    elif "Mac OS X" in ua:
+        m = re.search(r'Mac OS X ([0-9_]+)', ua)
+        if m:
+            return m.group(1).replace('_', '.')
+    return None
+
+def generate_sec_ch_ua_platform_version(ua):
+    version = parse_platform_version(ua)
+    return f'"{version}"' if version else '""'
+
+
+def parse_chromium_full_version(ua):
+    # Chrome/114.0.5735.198 or Chromium/...
+    m = re.search(r'(?:Chrome|Chromium)/([0-9.]+)', ua)
+    if m:
+        return m.group(1)
+    return None
+
+def generate_sec_ch_ua_full_version(ua):
+    version = parse_chromium_full_version(ua)
+    return f'"{version}"' if version else '""'
+
 # Determine if browser wants client hints
 def send_ch(ua):
     ua = ua.lower()

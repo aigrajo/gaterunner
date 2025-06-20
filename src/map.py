@@ -7,7 +7,7 @@ from pyproj import Geod
 
 # Write geo data to dictionary
 COUNTRY_GEO = {}
-with open('src/country_geo.csv', newline='') as csvfile:
+with open('src/data/country_geo.csv', newline='') as csvfile:
     reader = csv.reader(csvfile)
     next(reader)
     for row in reader:
@@ -64,7 +64,7 @@ def jitter_country_location(cc):
 # Randomly select User-Agent string based off of category
 def choose_ua(key):
 
-    with open('src/user-agents.json', newline='') as jsonfile:
+    with open('src/data/user-agents.json', newline='') as jsonfile:
         ua_data = json.load(jsonfile)
 
     if key not in ua_data or not ua_data[key]:

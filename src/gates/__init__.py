@@ -1,4 +1,3 @@
-from . import clienthints
 from .geolocation import GeolocationGate
 from .language import LanguageGate
 from .referrer import ReferrerGate

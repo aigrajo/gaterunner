@@ -11,7 +11,7 @@ def main():
     parser.add_argument('--country', help='Country code geolocation emulation (e.g. US, UK, FR)')
     parser.add_argument('--ref', help='Referrer header')
     parser.add_argument('--ua', help='User-Agent header, e.g. Windows;;Chrome ')
-    parser.add_argument('--lang', help='Language code')
+    parser.add_argument('--lang', help='Accept-Language header')
     args = parser.parse_args()
 
     url_to_save = args.url

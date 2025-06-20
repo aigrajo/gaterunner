@@ -5,7 +5,8 @@ import hashlib
 from playwright.async_api import async_playwright
 from urllib.parse import urlparse
 
-from .gates.clienthints import send_ch
+from src.clienthints import send_ch, parse_chromium_version, \
+    parse_chromium_ua
 from .html import rewrite_html_resources
 from .gates import ALL_GATES
 from .map import RESOURCE_DIRS
@@ -83,10 +84,32 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
                     context_args['user_agent'] = user_agent
         context = await browser.new_context(**context_args)
 
+        # Set client hints in context
+        if 'UserAgentGate' in gate_args:
+            brand, brand_v = parse_chromium_ua(user_agent)
+            chromium_v = parse_chromium_version(user_agent)
+
+            with open("src/js/spoof_useragent.js", "r") as f:
+                js_template = f.read()
+
+            js_script = js_template.format(
+                chromium_v=chromium_v,
+                brand=brand,
+                brand_v=brand_v,
+            )
+
+            await context.add_init_script(js_script)
+
+
+        # Set navigator.webdriver to false
+        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+
         # Set gates
         await run_gates(None, context, gates_enabled=gates_enabled, gate_args=gate_args, url=url)
 
         page = await context.new_page()
+
 
         async def handle_request(request):
             if request.resource_type in ['document', 'stylesheet', 'script', 'image', 'font', 'media']:
@@ -149,6 +172,7 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
         page.on('response', handle_response)
 
         print(f'[INFO] Loading page: {url}')
+
 
         try:
             await page.goto(url, wait_until='domcontentloaded')
