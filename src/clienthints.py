@@ -1,5 +1,84 @@
 import re
 import random
+from ua_parser import user_agent_parser
+
+ARCH_PATTERNS = [
+    # key substrings -> (architecture, bitness, wow64 flag)
+    (('wow64',),          ('x86', '32', True)),
+    (('amd64', 'x86_64', 'win64', 'x64', 'ia64'),
+                         ('x86', '64', False)),
+    (('i686', 'i386', 'x86'), ('x86', '32', False)),
+    (('arm64', 'aarch64', 'armv8'), ('arm', '64', False)),
+    (('armv7', 'armv6', 'arm;'),    ('arm', '32', False)),
+]
+
+def _detect_arch(ua_lower: str):
+    for needles, out in ARCH_PATTERNS:
+        if any(n in ua_lower for n in needles):
+            return out
+    return ('', '', False)          # unknown
+
+def _detect_model(ua: str):
+    # Android (try Build/… first, then relaxed pattern)
+    m = re.search(r'Android [\d.]+; ([^;/\)]+) Build/', ua)
+    if not m:
+        m = re.search(r'Android [\d.]+; ([^;\)]+)', ua)
+    if m:
+        return m.group(1).strip()
+
+    # iOS
+    m = re.search(r'\((iP(?:hone|ad|od)[^;)]*)', ua)
+    return m.group(1).strip() if m else ''
+
+def _detect_platform(parsed_os):
+    family = parsed_os['family']
+    mapping = {
+        ('Windows', 'Windows NT'): 'Windows',
+        ('Mac OS X', 'Mac OS'):    'macOS',
+        ('Chrome OS',):            'Chrome OS',
+        ('Android',):              'Android',
+        ('iOS', 'iPhone OS'):      'iOS',
+        ('KaiOS',):               'KaiOS',
+        ('Linux',):                'Linux',
+    }
+    for keys, value in mapping.items():
+        if family in keys:
+            return value
+    return family or ''
+
+def _detect_platform_version(platform, ua):
+    rx = {
+        'Windows':   r'Windows NT ([\d.]+)',
+        'macOS':     r'Mac OS X ([\d_]+)',
+        'Android':   r'Android ([\d.]+)',
+        'iOS':       r'OS ([\d_]+)',
+        'Chrome OS': r'CrOS [^ ]+ ([\d.]+)',
+        'KaiOS':     r'KAIOS/([\d.]+)',
+    }.get(platform)
+    if rx:
+        m = re.search(rx, ua)
+        if m:
+            return m.group(1).replace('_', '.')
+    return ''
+
+def extract_high_entropy_hints(ua_string: str) -> dict:
+    ua_lower = ua_string.lower()
+    parsed   = user_agent_parser.Parse(ua_string)
+
+    architecture, bitness, wow64 = _detect_arch(ua_lower)
+    model            = _detect_model(ua_string)
+    platform         = _detect_platform(parsed['os'])
+    platform_version = _detect_platform_version(platform, ua_string)
+
+    return {
+        'architecture'   : architecture,
+        'bitness'        : bitness,
+        'wow64'          : wow64,
+        'model'          : model,
+        'platform'       : platform,
+        'platformVersion': platform_version,
+    }
+
 
 # Identify brand and version
 def parse_chromium_ua(ua):

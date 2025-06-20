@@ -2,12 +2,13 @@ import os
 import json
 import asyncio
 import hashlib
+from platform import architecture
 
 from playwright.async_api import async_playwright
 from urllib.parse import urlparse
 
 from src.clienthints import send_ch, parse_chromium_version, \
-    parse_chromium_ua
+    parse_chromium_ua, extract_high_entropy_hints, parse_chromium_full_version
 from .html import rewrite_html_resources
 from .gates import ALL_GATES
 from .map import RESOURCE_DIRS
@@ -94,14 +95,23 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
         if 'UserAgentGate' in gate_args:
             brand, brand_v = parse_chromium_ua(user_agent)
             chromium_v = parse_chromium_version(user_agent)
+            entropy = extract_high_entropy_hints(user_agent)
 
             with open("src/js/spoof_useragent.js", "r") as f:
                 js_template = f.read()
 
             js_script = js_template.format(
-                chromium_v=chromium_v,
-                brand=brand,
-                brand_v=brand_v,
+                chromium_v=chromium_v or "",
+                brand=brand or "",
+                brand_v=brand_v or "",
+                architecture=entropy.get("architecture", ""),
+                bitness=entropy.get("bitness", ""),
+                wow64=str(entropy.get("wow64", False)).lower(),
+                model=entropy.get("model", ""),
+                mobile=str("mobile" in user_agent.lower()).lower(),
+                platform=entropy.get("platform", ""),
+                platformVersion=entropy.get("platformVersion", ""),
+                uaFullVersion=parse_chromium_full_version(user_agent) or "",
             )
 
             await context.add_init_script(js_script)
@@ -154,7 +164,6 @@ async def save_page(url, output_dir, gates_enabled=None, gate_args=None):
                     basename = basename + ext
 
                 request = response.request
-
                 resource_request_headers[request.url] = {
                     "method": request.method,
                 }
