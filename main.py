@@ -2,7 +2,7 @@ import argparse
 import sys
 import asyncio
 from urllib.parse import urlparse
-from src.map import COUNTRY_GEO, choose_ua, jitter_country_location
+from src.utils import COUNTRY_GEO, choose_ua, jitter_country_location
 from src.browser import save_page
 
 def main():

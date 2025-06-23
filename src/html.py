@@ -1,6 +1,7 @@
 import re
 from bs4 import BeautifulSoup
-from .map import tag_attr_map
+import os
+from .utils import tag_attr_map
 
 def rewrite_html_resources(html_content, url_to_local):
     soup = BeautifulSoup(html_content, "html.parser")
@@ -32,3 +33,13 @@ def rewrite_html_resources(html_content, url_to_local):
         element['style'] = style
 
     return str(soup)
+
+def save_html_files(output_dir, html_content, url_to_local):
+    # Save raw HTML
+    with open(os.path.join(output_dir, "page.html"), "w", encoding="utf-8") as fh:
+        fh.write(html_content)
+
+    # Rewrite resource links for offline use and save second copy
+    offline_html = rewrite_html_resources(html_content, url_to_local)
+    with open(os.path.join(output_dir, "page_offline.html"), "w", encoding="utf-8") as fh:
+        fh.write(offline_html)

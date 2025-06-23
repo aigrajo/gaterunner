@@ -97,6 +97,7 @@ tag_attr_map = {
     'object': ['data'],
 }
 
+
 # Debug (Change path to country_geo.csv)
 def main():
     geotest = jitter_country_location('US')
