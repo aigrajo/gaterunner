@@ -28,7 +28,7 @@ from playwright.async_api import Browser, BrowserContext, Playwright
 
 async def _build_apply_stealth():
     """Return coroutine *apply(ctx)* for Chromium contexts; noop on others."""
-    try:  # Stealth ≥ 2 – class API
+    try:  # Stealth ≥ 2 – class API
         Stealth = getattr(import_module("playwright_stealth"), "Stealth")  # type: ignore[attr-defined]
         stealth_inst = Stealth(init_scripts_only=True)
 
@@ -61,7 +61,7 @@ _apply_stealth = _loop.run_until_complete(_build_apply_stealth())
 # Local helpers & resources
 # ──────────────────────────────
 
-from .clienthints import (  # noqa: E402  – after shim
+from .clienthints import (  # after shim
     extract_high_entropy_hints,
     parse_chromium_full_version,
     parse_chromium_ua,
@@ -193,7 +193,7 @@ async def create_context(
             platformVersion=fp.get("platform_version", "15.0"),
             uaFullVersion=fp.get("ua_full_version", chromium_v),
         ) + (
-            f"\nObject.defineProperty(navigator, 'languages', {{ get: () => {lang_js} }});"  # noqa: E501
+            f"\nObject.defineProperty(navigator, 'languages', {{ get: () => {lang_js} }});"
         )
         await context.add_init_script(js_script)
     else:

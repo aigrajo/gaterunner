@@ -3,3 +3,4 @@ beautifulsoup4~=4.13.4
 shapely~=2.1.1
 pyproj~=3.7.1
 ua-parser~=1.0.1
+timezonefinder~=6.5.9
