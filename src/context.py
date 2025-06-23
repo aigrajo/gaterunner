@@ -18,6 +18,7 @@ import json
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from timezonefinder import TimezoneFinder
 
 from playwright.async_api import Browser, BrowserContext, Playwright
 
@@ -87,15 +88,25 @@ def _engine_from_ua(ua: str) -> str:
 
 
 def _locale_from_gate(gate_args: Dict[str, Any]) -> Tuple[str, Tuple[str, ...]]:
-    raw = gate_args.get("LanguageGate", {}).get("accept_language") if gate_args else None
+    raw = gate_args.get("LanguageGate", {}).get("language") if gate_args else None
     if not raw:
         return "en-US", ("en-US", "en")
     primary = raw.split(",", 1)[0].strip()
     return primary, (primary, primary.split("-", 1)[0])
 
+_tzf = TimezoneFinder()
+def _tz_from_coords(lat: float, lon: float) -> str:
+    return _tzf.timezone_at(lat=lat, lng=lon) or "UTC"
 
-def _timezone_from_gate(gate_args: Dict[str, Any]) -> str:
-    return gate_args.get("GeolocationGate", {}).get("timezone_id", "UTC")
+def _timezone_from_gate(gate_args):
+    geo_gate = gate_args.get("GeolocationGate", {})
+    if "timezone_id" in geo_gate:
+        return geo_gate["timezone_id"]
+    if "geolocation" in geo_gate:
+        lat = geo_gate["geolocation"]["latitude"]
+        lon = geo_gate["geolocation"]["longitude"]
+        return _tz_from_coords(lat, lon)
+    return "UTC"
 
 # ──────────────────────────────
 # Public API
