@@ -108,6 +108,131 @@ _WEBGL_BY_OS = {
     ),
 }
 
+# ──────────────────────────────
+# NEW – extra browser-surface stealth
+# ──────────────────────────────
+_EXTRA_STEALTH = r"""
+/* extra-stealth (chromium & fwk) */
+(() => {
+  /* Permissions & Notification */
+  if (navigator.permissions?.query) {
+    const real = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = p =>
+      p && p.name === 'notifications'
+        ? Promise.resolve({ state: 'prompt', onchange: null })
+        : real(p);
+  }
+  Object.defineProperty(Notification, 'permission', { get: () => 'default' });
+  Notification.requestPermission = async () => 'granted';
+
+  /* Speech-synthesis voices */
+  if ('speechSynthesis' in window) {
+    const voices = [{
+      voiceURI: 'Google US English',
+      name:     'Google US English',
+      lang:     'en-US',
+      localService: true,
+      default:  true
+    }];
+    window.speechSynthesis.getVoices = () => voices;
+  }
+
+  /* AudioContext hash jitter */
+  const ctxProto = (window.AudioContext || window.webkitAudioContext)?.prototype;
+  if (ctxProto && !ctxProto.__patched) {
+    const nativeCreate = ctxProto.createAnalyser;
+    ctxProto.createAnalyser = function () {
+      const analyser = nativeCreate.apply(this, arguments);
+      const nativeFFT = analyser.getFloatFrequencyData;
+      analyser.getFloatFrequencyData = function (arr) {
+        nativeFFT.call(this, arr);
+        for (let i = 0; i < arr.length; i += 128) arr[i] += (Math.random() * 1e-4);
+      };
+      return analyser;
+    };
+    ctxProto.__patched = true;
+  }
+
+  /* mediaDevices.getUserMedia stub */
+  if (navigator.mediaDevices && !navigator.mediaDevices.__patched) {
+    navigator.mediaDevices.getUserMedia = async () => new MediaStream();
+    navigator.mediaDevices.__patched = true;
+  }
+
+/* realistic plugins + mimeTypes */
+(function () {
+  /* use the real empty arrays to keep correct [[Class]] */
+  const nativePlugins = navigator.plugins;
+  if (nativePlugins.length === 0) {
+    const pdfPlugin = Object.freeze({
+      description: 'Portable Document Format',
+      filename:    'internal-pdf-viewer',
+      name:        'PDF Viewer',
+      length:      0
+    });
+    Object.defineProperty(nativePlugins, '0', { value: pdfPlugin, writable: false });
+    Object.defineProperty(nativePlugins, 'length', { value: 1, writable: false });
+  }
+
+  const nativeMimes = navigator.mimeTypes;
+  if (nativeMimes.length === 0) {
+    const pdfMime = Object.freeze({
+      type:          'application/pdf',
+      suffixes:      'pdf',
+      description:   '',
+      enabledPlugin: nativePlugins[0]
+    });
+    Object.defineProperty(nativeMimes, '0', { value: pdfMime, writable: false });
+    Object.defineProperty(nativeMimes, 'length', { value: 1, writable: false });
+  }
+})();
+
+    /* privacy flags */
+    Object.defineProperty(navigator, 'doNotTrack', { get: () => 'unspecified' });
+    
+    /* remove Battery Status API so Chrome 116+ behaviour matches */
+    (() => {
+      const wipe = (obj) => {
+        if (!obj || !('getBattery' in obj)) return;
+        const ok = delete obj.getBattery;
+        if (!ok) {            // if property is non-configurable, shadow it
+          try {
+            Object.defineProperty(obj, 'getBattery', {
+              value: undefined,
+              writable: false,
+              enumerable: false,
+              configurable: false
+            });
+          } catch (_) {}
+        }
+      };
+      wipe(Navigator.prototype);
+      wipe(navigator);
+    })();
+    if ('getBattery' in navigator) {
+      Object.defineProperty(Navigator.prototype, 'getBattery',
+        { value: undefined, configurable: false });
+      Object.defineProperty(navigator, 'getBattery',
+        { value: undefined, configurable: false });
+    }
+  }
+  })();
+
+
+  /* getClientRects bait tweak */
+  const nativeRects = Element.prototype.getClientRects;
+  Element.prototype.getClientRects = function () {
+    const rects = nativeRects.apply(this, arguments);
+    if (rects.length && this.offsetWidth === 0 && this.offsetHeight === 0) {
+      const r = rects[0];
+      return [new DOMRect(r.x + 0.5, r.y + 0.5, r.width, r.height)];
+    }
+    return rects;
+  };
+})();
+"""
+
+
 
 def _pick_webgl_pair(ua: str) -> Tuple[str, str]:
     low = ua.lower()
@@ -279,7 +404,7 @@ async def create_context(
     # Launch correct engine
     launcher = getattr(playwright, engine)
     browser: Browser = await launcher.launch(
-        headless=True,
+        headless=False,
         args=["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
     )
 
@@ -318,9 +443,17 @@ async def create_context(
             platformVersion=fp.get("platform_version", "15.0"),
             uaFullVersion=fp.get("ua_full_version", chromium_v),
         ) + (
-            f"\nObject.defineProperty(navigator, 'languages', {{ get: () => {lang_js} }});"
-            f"\nObject.defineProperty(navigator, 'deviceMemory', {{ get: () => {rand_mem} }});"
-            f"\nObject.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {rand_cores} }});"
+            f"""
+            Object.defineProperty(navigator, 'languages', {{ get: () => {lang_js} }});
+            const _mem = {rand_mem};   // chosen RAM
+            Object.defineProperty(navigator, 'deviceMemory', {{ get: () => _mem }});
+
+            const _hc_map = {{4:4,6:4,8:4,12:8,16:8,24:12,32:16}};   // realistic mapping
+            Object.defineProperty(navigator, 'hardwareConcurrency', {{
+                get: () => _hc_map[_mem] || 4
+            }});
+            """
+
         ) + f"\n{touch_js}"
 
         # Additional deep patches
@@ -356,7 +489,37 @@ async def create_context(
             /* 3 – chrome.runtime stub */
             if (!('chrome' in window)) window.chrome = {{ runtime: {{}} }};
             else if (!('runtime' in window.chrome)) window.chrome.runtime = {{}};
-
+            /* 3b – chrome.loadTimes and chrome.csi stubs */
+            if (!('loadTimes' in window.chrome)) {{
+              window.chrome.loadTimes = function() {{
+                return {{
+                  requestTime: Date.now() / 1000,
+                  startLoadTime: Date.now() / 1000,
+                  commitLoadTime: Date.now() / 1000,
+                  finishDocumentLoadTime: Date.now() / 1000,
+                  finishLoadTime: Date.now() / 1000,
+                  firstPaintTime: Date.now() / 1000,
+                  firstPaintAfterLoadTime: 0,
+                  navigationType: 'Other',
+                  wasFetchedViaSpdy: false,
+                  wasNpnNegotiated: false,
+                  npnNegotiatedProtocol: '',
+                  wasAlternateProtocolAvailable: false,
+                  connectionInfo: 'h2'
+                }};
+              }};
+            }}
+            if (!('csi' in window.chrome)) {{
+              window.chrome.csi = function() {{
+                return {{
+                  startE: Date.now(),
+                  onloadT: Date.now() - performance.timing.navigationStart,
+                  pageT: Date.now() - performance.timing.navigationStart,
+                  tran: 15
+                }};
+              }};
+            }}
+                        
             /* 4 – WebGL spoof */
             const SPOOF_VENDOR   = '{webgl_vendor}';
             const SPOOF_RENDERER = '{webgl_renderer}';
@@ -387,8 +550,8 @@ async def create_context(
               }};
 
               /* WEBGL_debug_renderer_info stub */
-              const nativeExt = proto.getExtension;
-              proto.getExtension = function (name) {{
+              const nativeExt = proto.getSupportedExtensions;
+              proto.getSupportedExtensions = function (name) {{
                 if (name === 'WEBGL_debug_renderer_info') {{
                   return Object.freeze({{
                     UNMASKED_VENDOR_WEBGL:   CONSTS.UNMASKED_VENDOR,
@@ -438,11 +601,13 @@ async def create_context(
         }})();
         """
 
+        js_script += _EXTRA_STEALTH
         await context.add_init_script(js_script)
 
     # ───────── Firefox / WebKit path ─────────
     else:
         js_script = _fwk_js_patch(languages, fp["tz"], rand_mem, rand_cores)
+        js_script += _EXTRA_STEALTH
         await context.add_init_script(js_script)
 
     return browser, context
