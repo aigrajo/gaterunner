@@ -7,33 +7,81 @@ from .gaterunner import run_gates
 from .resources import handle_request, handle_response, save_json, save_screenshot
 from .html import save_html_files
 
+
+async def auto_scroll(page, *, pause_ms: int = 150, max_scrolls: int | None = None):
+    """
+    Scroll one viewport at a time until the document height stops growing.
+    Triggers lazy-load code quickly without missing content.
+    """
+    await page.evaluate(
+        """
+        async ({ pause, cap }) => {
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+            let lastHeight = 0;
+            let count = 0;
+
+            for (;;) {
+                const { scrollHeight, clientHeight } = document.documentElement;
+                window.scrollBy(0, clientHeight);
+                await sleep(pause);
+
+                const newHeight = document.documentElement.scrollHeight;
+                count += 1;
+
+                if (newHeight === lastHeight) break;
+                if (cap !== null && count >= cap) break;
+
+                lastHeight = newHeight;
+            }
+        }
+        """,
+        {"pause": pause_ms, "cap": max_scrolls},
+    )
+
+
 async def save_page(url: str, output_dir: str, *, gates_enabled=None, gate_args=None):
     """
-    Save page resources
-    """""
+    Save a page’s resources, HTML, cookies and a screenshot.
+    """
     gates_enabled = gates_enabled or {}
     gate_args = gate_args or {}
 
+    pause_ms = gate_args.get("scroll_pause_ms", 150)
+    max_scrolls = gate_args.get("max_scrolls")
+
     resource_urls = set()
-    resource_request_headers = {}
-    resource_response_headers = {}
+    request_headers = {}
+    response_headers = {}
     url_to_local = {}
     stats = {"warnings": 0, "errors": 0}
 
     async with async_playwright() as p:
         browser, context = await create_context(p, gate_args)
 
-        await run_gates(None, context, gates_enabled=gates_enabled, gate_args=gate_args, url=url, resource_request_headers=resource_request_headers)
+        await run_gates(
+            None,
+            context,
+            gates_enabled=gates_enabled,
+            gate_args=gate_args,
+            url=url,
+            resource_request_headers=request_headers,
+        )
+
         page = await context.new_page()
 
-        # Wire up request/response capture
+        # Wire up network capture
         page.on("request", lambda req: asyncio.create_task(handle_request(req, resource_urls)))
-        page.on("response", lambda resp: asyncio.create_task(handle_response(resp, output_dir, url_to_local, resource_response_headers, stats)))
+        page.on(
+            "response",
+            lambda resp: asyncio.create_task(
+                handle_response(resp, output_dir, url_to_local, response_headers, stats)
+            ),
+        )
 
-        # Navigate & wait until the network is *truly* idle
         print(f"[INFO] Loading page: {url}")
         try:
             await page.goto(url, wait_until="domcontentloaded")
+            await auto_scroll(page, pause_ms=pause_ms, max_scrolls=max_scrolls)
             await page.wait_for_load_state("networkidle")
         except Exception as exc:
             print(f"[ERROR] Failed to load {url}: {exc}")
@@ -41,40 +89,18 @@ async def save_page(url: str, output_dir: str, *, gates_enabled=None, gate_args=
             await browser.close()
             return
 
-        # Trigger any lazy‑load by scrolling to bottom
-        scroll_script = """
-            async () => {
-                await new Promise(resolve => {
-                    let totalHeight = 0;
-                    const distance = 100;
-                    const timer = setInterval(() => {
-                        window.scrollBy(0, distance);
-                        totalHeight += distance;
-                        if (totalHeight >= document.body.scrollHeight) {
-                            clearInterval(timer);
-                            resolve();
-                        }
-                    }, 100);
-                });
-            }
-        """
-        try:
-            await page.evaluate(scroll_script)
-        except Error:
-            pass
-
-        # Capture screenshot, HTML, cookies
+        # Persist screenshot and metadata
         os.makedirs(output_dir, exist_ok=True)
         if not page.is_closed():
             await save_screenshot(page, output_dir)
 
-        save_json(os.path.join(output_dir, "http_request_headers.json"), resource_request_headers)
-        save_json(os.path.join(output_dir, "http_response_headers.json"), resource_response_headers)
+        save_json(os.path.join(output_dir, "http_request_headers.json"), request_headers)
+        save_json(os.path.join(output_dir, "http_response_headers.json"), response_headers)
 
         cookies = await context.cookies()
         save_json(os.path.join(output_dir, "cookies.json"), cookies)
 
-        # Grab DOM; guard against closed page
+        # Save DOM
         html_content = ""
         if not page.is_closed():
             try:

@@ -21,7 +21,8 @@ while read -r raw_url; do
      python main.py "$url" \
         --country US \
         --ua "Windows;;Chrome" \
-        --lang "en-US"
+        --lang "en-US" > /dev/null 2>&1
+
 
 done < "$input"
 
