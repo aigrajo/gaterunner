@@ -146,28 +146,48 @@ async def save_page(
     url_to_local: dict = {}
     stats = {"warnings": 0, "errors": 0}
 
-    if _HAS_CAMOUFOX and "Firefox" in gate_args['UserAgentGate'].get("user_agent"):
-        # Native‑stealth path – no JS patches needed
-        print("[INFO] Launching CamouFox browser …")
-        async with AsyncCamoufox(headless=True) as browser:  # type: ignore
-            context = await browser.new_context()
-            await _grab(
-                browser,
-                context,
-                url,
-                output_dir,
-                resource_urls,
-                request_headers,
-                response_headers,
-                url_to_local,
-                stats,
-                pause_ms=pause_ms,
-                max_scrolls=max_scrolls,
-                gates_enabled=gates_enabled,
-                gate_args=gate_args,
-            )
+    if gates_enabled.get('UserAgentGate', True):
+        if _HAS_CAMOUFOX and "Firefox" in gate_args['UserAgentGate'].get("user_agent"):
+            # Native‑stealth path – no JS patches needed
+            print("[INFO] Launching CamouFox browser...")
+            async with AsyncCamoufox(headless=False) as browser:  # type: ignore
+                context = await browser.new_context()
+                await _grab(
+                    browser,
+                    context,
+                    url,
+                    output_dir,
+                    resource_urls,
+                    request_headers,
+                    response_headers,
+                    url_to_local,
+                    stats,
+                    pause_ms=pause_ms,
+                    max_scrolls=max_scrolls,
+                    gates_enabled=gates_enabled,
+                    gate_args=gate_args,
+                )
+        else:
+            # Playwright + JS‑stealth patches
+            async with async_playwright() as p:
+                browser, context = await create_context(p, gate_args)
+                await _grab(
+                    browser,
+                    context,
+                    url,
+                    output_dir,
+                    resource_urls,
+                    request_headers,
+                    response_headers,
+                    url_to_local,
+                    stats,
+                    pause_ms=pause_ms,
+                    max_scrolls=max_scrolls,
+                    gates_enabled=gates_enabled,
+                    gate_args=gate_args,
+                )
     else:
-        # Original Playwright + JS‑stealth path
+        # Playwright without User Agent Spoofing
         async with async_playwright() as p:
             browser, context = await create_context(p, gate_args)
             await _grab(

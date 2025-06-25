@@ -52,7 +52,6 @@ def jitter_country_location(cc):
     else:
         raise ValueError(f"Unknown geometry type for country {cc}")
     accuracy = round(random.uniform(100, 200))
-    roundx, roundy = round(point.x, 7), round(point.y, 7)
     geo = {
         'latitude': point.y,
         'longitude': point.x,
