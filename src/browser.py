@@ -46,7 +46,7 @@ async def save_page(url: str, output_dir: str, *, gates_enabled=None, gate_args=
     gates_enabled = gates_enabled or {}
     gate_args = gate_args or {}
 
-    pause_ms = gate_args.get("scroll_pause_ms", 150)
+    pause_ms = gate_args.get("scroll_pause_ms", 10000000)
     max_scrolls = gate_args.get("max_scrolls")
 
     resource_urls = set()

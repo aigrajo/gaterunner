@@ -73,8 +73,16 @@ from .clienthints import (  # noqa: E402 – after shim
     parse_chromium_version,
 )
 
-_JS_TEMPLATE_PATH = Path(__file__).resolve().parent / "js" / "spoof_useragent.js"
+_JS_DIR = Path(__file__).resolve().parent / "js"
+_JS_TEMPLATE_PATH = _JS_DIR / "spoof_useragent.js"
+_EXTRA_STEALTH_PATH = _JS_DIR / "extra_stealth.js"
+_FWK_STEALTH_PATH = _JS_DIR / "fwk_stealth.js"
+_CHROMIUM_STEALTH_PATH = _JS_DIR / "chromium_stealth.js"
+
 _JS_TEMPLATE = _JS_TEMPLATE_PATH.read_text(encoding="utf-8")
+_EXTRA_STEALTH = _EXTRA_STEALTH_PATH.read_text(encoding="utf-8")
+_FWK_STEALTH_TEMPLATE = _FWK_STEALTH_PATH.read_text(encoding="utf-8")
+_CHROMIUM_STEALTH_TEMPLATE = _CHROMIUM_STEALTH_PATH.read_text(encoding="utf-8")
 
 _DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -108,133 +116,8 @@ _WEBGL_BY_OS = {
     ),
 }
 
-# ──────────────────────────────
-# NEW – extra browser-surface stealth
-# ──────────────────────────────
-_EXTRA_STEALTH = r"""
-/* extra-stealth (chromium & fwk) */
-(() => {
-  /* Permissions & Notification */
-  if (navigator.permissions?.query) {
-    const real = navigator.permissions.query.bind(navigator.permissions);
-    navigator.permissions.query = p =>
-      p && p.name === 'notifications'
-        ? Promise.resolve({ state: 'prompt', onchange: null })
-        : real(p);
-  }
-  Object.defineProperty(Notification, 'permission', { get: () => 'default' });
-  Notification.requestPermission = async () => 'granted';
-
-  /* Speech-synthesis voices */
-  if ('speechSynthesis' in window) {
-    const voices = [{
-      voiceURI: 'Google US English',
-      name:     'Google US English',
-      lang:     'en-US',
-      localService: true,
-      default:  true
-    }];
-    window.speechSynthesis.getVoices = () => voices;
-  }
-
-  /* AudioContext hash jitter */
-  const ctxProto = (window.AudioContext || window.webkitAudioContext)?.prototype;
-  if (ctxProto && !ctxProto.__patched) {
-    const nativeCreate = ctxProto.createAnalyser;
-    ctxProto.createAnalyser = function () {
-      const analyser = nativeCreate.apply(this, arguments);
-      const nativeFFT = analyser.getFloatFrequencyData;
-      analyser.getFloatFrequencyData = function (arr) {
-        nativeFFT.call(this, arr);
-        for (let i = 0; i < arr.length; i += 128) arr[i] += (Math.random() * 1e-4);
-      };
-      return analyser;
-    };
-    ctxProto.__patched = true;
-  }
-
-  /* mediaDevices.getUserMedia stub */
-  if (navigator.mediaDevices && !navigator.mediaDevices.__patched) {
-    navigator.mediaDevices.getUserMedia = async () => new MediaStream();
-    navigator.mediaDevices.__patched = true;
-  }
-
-/* realistic plugins + mimeTypes */
-(function () {
-  /* use the real empty arrays to keep correct [[Class]] */
-  const nativePlugins = navigator.plugins;
-  if (nativePlugins.length === 0) {
-    const pdfPlugin = Object.freeze({
-      description: 'Portable Document Format',
-      filename:    'internal-pdf-viewer',
-      name:        'PDF Viewer',
-      length:      0
-    });
-    Object.defineProperty(nativePlugins, '0', { value: pdfPlugin, writable: false });
-    Object.defineProperty(nativePlugins, 'length', { value: 1, writable: false });
-  }
-
-  const nativeMimes = navigator.mimeTypes;
-  if (nativeMimes.length === 0) {
-    const pdfMime = Object.freeze({
-      type:          'application/pdf',
-      suffixes:      'pdf',
-      description:   '',
-      enabledPlugin: nativePlugins[0]
-    });
-    Object.defineProperty(nativeMimes, '0', { value: pdfMime, writable: false });
-    Object.defineProperty(nativeMimes, 'length', { value: 1, writable: false });
-  }
-})();
-
-    /* privacy flags */
-    Object.defineProperty(navigator, 'doNotTrack', { get: () => 'unspecified' });
-    
-    /* remove Battery Status API so Chrome 116+ behaviour matches */
-    (() => {
-      const wipe = (obj) => {
-        if (!obj || !('getBattery' in obj)) return;
-        const ok = delete obj.getBattery;
-        if (!ok) {            // if property is non-configurable, shadow it
-          try {
-            Object.defineProperty(obj, 'getBattery', {
-              value: undefined,
-              writable: false,
-              enumerable: false,
-              configurable: false
-            });
-          } catch (_) {}
-        }
-      };
-      wipe(Navigator.prototype);
-      wipe(navigator);
-    })();
-    if ('getBattery' in navigator) {
-      Object.defineProperty(Navigator.prototype, 'getBattery',
-        { value: undefined, configurable: false });
-      Object.defineProperty(navigator, 'getBattery',
-        { value: undefined, configurable: false });
-    }
-  }
-  })();
-
-
-  /* getClientRects bait tweak */
-  const nativeRects = Element.prototype.getClientRects;
-  Element.prototype.getClientRects = function () {
-    const rects = nativeRects.apply(this, arguments);
-    if (rects.length && this.offsetWidth === 0 && this.offsetHeight === 0) {
-      const r = rects[0];
-      return [new DOMRect(r.x + 0.5, r.y + 0.5, r.width, r.height)];
-    }
-    return rects;
-  };
-})();
-"""
-
-
-
 def _pick_webgl_pair(ua: str) -> Tuple[str, str]:
+    """Return a realistic (vendor, renderer) pair based on the OS detected in the UA."""
     low = ua.lower()
     if "mac os" in low or "macos" in low:
         pool = _WEBGL_BY_OS["mac"]
@@ -289,54 +172,11 @@ def _timezone_from_gate(gate_args: Dict[str, Any]) -> str:
 # JS patch builder for Firefox / WebKit
 # ──────────────────────────────
 
-def _fwk_js_patch(languages: Tuple[str, ...], tz: str, mem: int, cores: int) -> str:
+def _fwk_js_patch(languages: Tuple[str, ...], tz: str, mem: int, cores: int, ua: str) -> str:
     lang_js = json.dumps(list(languages))
-    return f"""
-/* fwk-stealth (deep) */
-Object.defineProperty(navigator, 'languages', {{ get: () => {lang_js} }});
-Object.defineProperty(Intl.DateTimeFormat.prototype, 'resolvedOptions',
-  {{ value: () => {{ timeZone: '{tz}' }} }});
-Object.defineProperty(navigator, 'deviceMemory', {{ get: () => {mem} }});
-Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {cores} }});
-Object.defineProperty(navigator, 'vendor', {{ get: () => '' }});
-Object.defineProperty(navigator, 'oscpu', {{ get: () => undefined }});
-Object.defineProperty(navigator, 'buildID', {{ get: () => undefined }});
-Object.defineProperty(navigator, 'productSub', {{ get: () => '20100101' }});
-try {{ delete window.navigator.__proto__.mozAddonManager; }} catch(_) {{}}
-
-/* realistic plugin + mimeTypes */
-Object.defineProperty(navigator, 'plugins', {{ get: () => [
-  {{ name: 'Portable Document Format', filename: 'internal-pdf-viewer',
-     description: 'Portable Document Format' }}
-] }});
-Object.defineProperty(navigator, 'mimeTypes', {{ get: () => [
-  {{ type: 'application/pdf', description: '', suffixes: 'pdf',
-     enabledPlugin: navigator.plugins[0] }}
-] }});
-
-/* WebGL vendor / renderer → Mozilla */
-const _get = WebGLRenderingContext.prototype.getParameter;
-WebGLRenderingContext.prototype.getParameter = function(p) {{
-  if (p === 37445 || p === 37446) return 'Mozilla';
-  return _get.call(this, p);
-}};
-
-/* Canvas fingerprint noise – random 3×3 pixel patch */
-(() => {{
-  const _toURL = HTMLCanvasElement.prototype.toDataURL;
-  HTMLCanvasElement.prototype.toDataURL = function() {{
-    try {{
-      const ctx = this.getContext('2d');
-      if (ctx) {{
-        const x = Math.floor(Math.random() * this.width);
-        const y = Math.floor(Math.random() * this.height);
-        ctx.fillRect(x, y, 3, 3);
-      }}
-    }} catch (_) {{}}
-    return _toURL.apply(this, arguments);
-  }};
-}})();
-"""
+    return (_FWK_STEALTH_TEMPLATE
+            .replace('__LANG_JS__', lang_js)
+            .replace('__TZ__', tz))
 
 
 # ──────────────────────────────
@@ -404,7 +244,7 @@ async def create_context(
     # Launch correct engine
     launcher = getattr(playwright, engine)
     browser: Browser = await launcher.launch(
-        headless=True,
+        headless=False,
         args=["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
     )
 
@@ -442,171 +282,35 @@ async def create_context(
             platform=fp.get("platform", "Win32"),
             platformVersion=fp.get("platform_version", "15.0"),
             uaFullVersion=fp.get("ua_full_version", chromium_v),
-        ) + (
-            f"""
-            Object.defineProperty(navigator, 'languages', {{ get: () => {lang_js} }});
-            const _mem = {rand_mem};   // chosen RAM
-            Object.defineProperty(navigator, 'deviceMemory', {{ get: () => _mem }});
+        )
 
-            const _hc_map = {{4:4,6:4,8:4,12:8,16:8,24:12,32:16}};   // realistic mapping
-            Object.defineProperty(navigator, 'hardwareConcurrency', {{
-                get: () => _hc_map[_mem] || 4
-            }});
-            """
-
-        ) + f"\n{touch_js}"
-
-        # Additional deep patches
-        js_script += f"""
-        /* deep-stealth (chromium) – final */
-        (() => {{
-          try {{
-            /* 1 – remove webdriver */
-            delete Navigator.prototype.webdriver;
-            delete navigator.webdriver;
-
-            /* 2 – userAgentData */
-            const uaData = {{
-              brands: [{{ brand: '{fp['brand']}', version: '{fp['brand_v']}' }}],
-              platform: '{fp['platform']}',
-              mobile: {str(fp['mobile']).lower()},
-              getHighEntropyValues: async (hints) => {{
-                const src = {{
-                  architecture: '{fp['arch']}',
-                  bitness: '{fp['bitness']}',
-                  model: '{entropy.get('model', '')}',
-                  platformVersion: '{fp['platform_version']}',
-                  uaFullVersion: '{fp['ua_full_version']}',
-                  wow64: {str(fp.get('wow64', False)).lower()}
-                }};
-                const out = {{}};
-                for (const h of hints) if (src[h] !== undefined) out[h] = src[h];
-                return out;
-              }}
-            }};
-            Object.defineProperty(navigator, 'userAgentData', {{ get: () => uaData }});
-
-            /* 3 – chrome.runtime stub */
-            if (!('chrome' in window)) window.chrome = {{ runtime: {{}} }};
-            else if (!('runtime' in window.chrome)) window.chrome.runtime = {{}};
-            /* 3b – chrome.loadTimes and chrome.csi stubs */
-            if (!('loadTimes' in window.chrome)) {{
-              window.chrome.loadTimes = function() {{
-                return {{
-                  requestTime: Date.now() / 1000,
-                  startLoadTime: Date.now() / 1000,
-                  commitLoadTime: Date.now() / 1000,
-                  finishDocumentLoadTime: Date.now() / 1000,
-                  finishLoadTime: Date.now() / 1000,
-                  firstPaintTime: Date.now() / 1000,
-                  firstPaintAfterLoadTime: 0,
-                  navigationType: 'Other',
-                  wasFetchedViaSpdy: false,
-                  wasNpnNegotiated: false,
-                  npnNegotiatedProtocol: '',
-                  wasAlternateProtocolAvailable: false,
-                  connectionInfo: 'h2'
-                }};
-              }};
-            }}
-            if (!('csi' in window.chrome)) {{
-              window.chrome.csi = function() {{
-                return {{
-                  startE: Date.now(),
-                  onloadT: Date.now() - performance.timing.navigationStart,
-                  pageT: Date.now() - performance.timing.navigationStart,
-                  tran: 15
-                }};
-              }};
-            }}
-                        
-            /* 4 – WebGL spoof */
-            const SPOOF_VENDOR   = '{webgl_vendor}';
-            const SPOOF_RENDERER = '{webgl_renderer}';
-            const CONSTS = {{
-              VENDOR:            0x1F00,
-              RENDERER:          0x1F01,
-              UNMASKED_VENDOR:   0x9245,
-              UNMASKED_RENDERER: 0x9246,
-            }};
-
-            ['WebGLRenderingContext','WebGL2RenderingContext'].forEach((ctxName) => {{
-              const proto = window[ctxName]?.prototype;
-              if (!proto) return;
-
-              /* getParameter override */
-              const nativeGet = proto.getParameter;
-              proto.getParameter = function (p) {{
-                switch (p) {{
-                  case CONSTS.VENDOR:
-                  case CONSTS.UNMASKED_VENDOR:
-                    return SPOOF_VENDOR;
-                  case CONSTS.RENDERER:
-                  case CONSTS.UNMASKED_RENDERER:
-                    return SPOOF_RENDERER;
-                  default:
-                    return nativeGet.call(this, p);
-                }}
-              }};
-
-              /* WEBGL_debug_renderer_info stub */
-              const nativeExt = proto.getSupportedExtensions;
-              proto.getSupportedExtensions = function (name) {{
-                if (name === 'WEBGL_debug_renderer_info') {{
-                  return Object.freeze({{
-                    UNMASKED_VENDOR_WEBGL:   CONSTS.UNMASKED_VENDOR,
-                    UNMASKED_RENDERER_WEBGL: CONSTS.UNMASKED_RENDERER,
-                  }});
-                }}
-                return nativeExt.call(this, name);
-              }};
-            }});
-
-            /* OffscreenCanvas shares patched proto */
-            if ('OffscreenCanvas' in window) {{
-              const realGetCtx = OffscreenCanvas.prototype.getContext;
-              OffscreenCanvas.prototype.getContext = function (type, opts) {{
-                const ctx = realGetCtx.call(this, type, opts);
-                return ctx ?? undefined;
-              }};
-            }}
-
-            /* 5 – canvas noise (3×3 random pixel) */
-            const nativeToURL = HTMLCanvasElement.prototype.toDataURL;
-            HTMLCanvasElement.prototype.toDataURL = function () {{
-              try {{
-                const ctx = this.getContext('2d');
-                if (ctx) {{
-                  const x = (Math.random() * this.width) | 0;
-                  const y = (Math.random() * this.height) | 0;
-                  ctx.fillRect(x, y, 3, 3);
-                }}
-              }} catch (_ignored) {{}}
-              return nativeToURL.apply(this, arguments);
-            }};
-
-            /* 6 – mediaDevices fallback */
-            if (navigator.mediaDevices?.enumerateDevices) {{
-              const realEnum = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
-              navigator.mediaDevices.enumerateDevices = async () => {{
-                const list = await realEnum();
-                if (list.length) return list;
-                return [
-                  {{ kind: 'audioinput', label: 'Microphone', deviceId: 'default', groupId: 'default' }},
-                  {{ kind: 'videoinput', label: 'Camera', deviceId: 'default', groupId: 'default' }}
-                ];
-              }};
-            }}
-          }} catch (_err) {{}}
-        }})();
-        """
+        chromium_patch = (_CHROMIUM_STEALTH_TEMPLATE
+            .replace('__LANG_JS__', lang_js)
+            .replace('__TOUCH_JS__', touch_js)
+            .replace('__BRAND__', fp['brand'])
+            .replace('__BRAND_V__', fp['brand_v'])
+            .replace('__PLATFORM__', fp['platform'])
+            .replace('__MOBILE__', str(fp['mobile']).lower())
+            .replace('__ARCH__', fp.get('arch', 'x86'))
+            .replace('__BITNESS__', fp.get('bitness', '64'))
+            .replace('__MODEL__', entropy.get('model', ''))
+            .replace('__PLATFORM_VERSION__', fp.get('platform_version', '15.0'))
+            .replace('__UA_FULL_VERSION__', fp.get('ua_full_version', chromium_v))
+            .replace('__WOW64__', str(bool(fp.get('wow64', False))).lower())
+            .replace('__WEBGL_VENDOR__', webgl_vendor)
+            .replace('__WEBGL_RENDERER__', webgl_renderer)
+            .replace('__USER_AGENT__', ua)
+            .replace('__RAND_MEM__', str(rand_mem))
+            .replace('__TZ__', tz_id)
+        )
+        js_script += chromium_patch
 
         js_script += _EXTRA_STEALTH
         await context.add_init_script(js_script)
 
     # ───────── Firefox / WebKit path ─────────
     else:
-        js_script = _fwk_js_patch(languages, fp["tz"], rand_mem, rand_cores)
+        js_script = _fwk_js_patch(languages, fp["tz"], rand_mem, rand_cores, ua)
         js_script += _EXTRA_STEALTH
         await context.add_init_script(js_script)
 
