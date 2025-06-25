@@ -5,3 +5,4 @@ pyproj~=3.7.1
 ua-parser~=1.0.1
 timezonefinder~=6.5.9
 httpagentparser~=1.9.5
+camoufox~=0.4.11

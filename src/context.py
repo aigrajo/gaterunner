@@ -78,11 +78,14 @@ _JS_TEMPLATE_PATH = _JS_DIR / "spoof_useragent.js"
 _EXTRA_STEALTH_PATH = _JS_DIR / "extra_stealth.js"
 _FWK_STEALTH_PATH = _JS_DIR / "fwk_stealth.js"
 _CHROMIUM_STEALTH_PATH = _JS_DIR / "chromium_stealth.js"
+_WEBGL_PATCH_PATH = _JS_DIR / "webgl_patch.js"
 
 _JS_TEMPLATE = _JS_TEMPLATE_PATH.read_text(encoding="utf-8")
 _EXTRA_STEALTH = _EXTRA_STEALTH_PATH.read_text(encoding="utf-8")
 _FWK_STEALTH_TEMPLATE = _FWK_STEALTH_PATH.read_text(encoding="utf-8")
 _CHROMIUM_STEALTH_TEMPLATE = _CHROMIUM_STEALTH_PATH.read_text(encoding="utf-8")
+_WEBGL_PATCH_TEMPLATE = _WEBGL_PATCH_PATH.read_text(encoding="utf-8")
+
 
 _DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -95,24 +98,24 @@ _CORE_CHOICES = [4, 6, 8, 12, 16]
 
 # Real WebGL vendor/renderer pairs sourced from real‑world hardware.
 _WEBGL_CHOICES: Tuple[Tuple[str, str], ...] = (
-    ("Google Inc.", "ANGLE (Intel(R) UHD Graphics 630)"),
+    #("Google Inc.", "ANGLE (Intel(R) UHD Graphics 630)"),
     ("Google Inc.", "ANGLE (NVIDIA GeForce RTX 3060 Laptop GPU Direct3D11 vs_5_0 ps_5_0)"),
-    ("Google Inc.", "ANGLE (AMD Radeon RX 6800 XT Direct3D11 vs_5_0 ps_5_0)"),
-    ("Google Inc.", "ANGLE (Apple M1 Pro)"),
+    #("Google Inc.", "ANGLE (AMD Radeon RX 6800 XT Direct3D11 vs_5_0 ps_5_0)"),
+    #("Google Inc.", "ANGLE (Apple M1 Pro)"),
 )
 
 _WEBGL_BY_OS = {
     "windows": (
         ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060/PCIe/SSE2"),
-        ("Intel",              "Intel(R) UHD Graphics 630"),
-        ("AMD",                "AMD Radeon RX 6800 XT"),
+        #("Intel",              "Intel(R) UHD Graphics 630"),
+        #("AMD",                "AMD Radeon RX 6800 XT"),
     ),
     "mac": (
-        ("Apple Inc.",         "Apple M1 Pro"),
+        #("Apple Inc.",         "Apple M1 Pro"),
     ),
     "linux": (
-        ("Intel",              "Mesa Intel(R) UHD Graphics 630"),
-        ("AMD",                "AMD Radeon RX 6800 XT (RADV NAVI21)"),
+        #("Intel",              "Mesa Intel(R) UHD Graphics 630"),
+        #("AMD",                "AMD Radeon RX 6800 XT (RADV NAVI21)"),
     ),
 }
 
@@ -263,8 +266,10 @@ async def create_context(
 
     # ───────── Chromium path ─────────
     if engine == "chromium":
+        # Apply chromium stealth
         await _apply_stealth(context)
 
+        # Prepare JS scripts
         lang_js = json.dumps(list(fp["languages"]))
         touch_js = """if ('ontouchstart' in window) {} else Object.defineProperty(window, 'ontouchstart', {value: null});"""
         if fp.get("mobile"):
@@ -283,36 +288,41 @@ async def create_context(
             platformVersion=fp.get("platform_version", "15.0"),
             uaFullVersion=fp.get("ua_full_version", chromium_v),
         )
-
         chromium_patch = (_CHROMIUM_STEALTH_TEMPLATE
-            .replace('__LANG_JS__', lang_js)
-            .replace('__TOUCH_JS__', touch_js)
-            .replace('__BRAND__', fp['brand'])
-            .replace('__BRAND_V__', fp['brand_v'])
-            .replace('__PLATFORM__', fp['platform'])
-            .replace('__MOBILE__', str(fp['mobile']).lower())
-            .replace('__ARCH__', fp.get('arch', 'x86'))
-            .replace('__BITNESS__', fp.get('bitness', '64'))
-            .replace('__MODEL__', entropy.get('model', ''))
-            .replace('__PLATFORM_VERSION__', fp.get('platform_version', '15.0'))
-            .replace('__UA_FULL_VERSION__', fp.get('ua_full_version', chromium_v))
-            .replace('__WOW64__', str(bool(fp.get('wow64', False))).lower())
+                          .replace('__LANG_JS__', lang_js)
+                          .replace('__TOUCH_JS__', touch_js)
+                          .replace('__BRAND__', fp['brand'])
+                          .replace('__BRAND_V__', fp['brand_v'])
+                          .replace('__PLATFORM__', fp['platform'])
+                          .replace('__MOBILE__', str(fp['mobile']).lower())
+                          .replace('__ARCH__', fp.get('arch', 'x86'))
+                          .replace('__BITNESS__', fp.get('bitness', '64'))
+                          .replace('__MODEL__', entropy.get('model', ''))
+                          .replace('__PLATFORM_VERSION__', fp.get('platform_version', '15.0'))
+                          .replace('__UA_FULL_VERSION__', fp.get('ua_full_version', chromium_v))
+                          .replace('__WOW64__', str(bool(fp.get('wow64', False))).lower())
+                          .replace('__WEBGL_VENDOR__', webgl_vendor)
+                          .replace('__WEBGL_RENDERER__', webgl_renderer)
+                          .replace('__USER_AGENT__', ua)
+                          .replace('__RAND_MEM__', str(rand_mem))
+                          .replace('__TZ__', tz_id)
+                          )
+
+        webgl_patch = (
+            _WEBGL_PATCH_TEMPLATE
             .replace('__WEBGL_VENDOR__', webgl_vendor)
             .replace('__WEBGL_RENDERER__', webgl_renderer)
-            .replace('__USER_AGENT__', ua)
-            .replace('__RAND_MEM__', str(rand_mem))
-            .replace('__TZ__', tz_id)
         )
-        js_script += chromium_patch
 
-        js_script += _EXTRA_STEALTH
+        # Inject scripts in correct order
         await context.add_init_script(js_script)
-
-    # ───────── Firefox / WebKit path ─────────
+        await context.add_init_script(chromium_patch)
+        await context.add_init_script(_EXTRA_STEALTH)
+        await context.add_init_script(webgl_patch)
     else:
         js_script = _fwk_js_patch(languages, fp["tz"], rand_mem, rand_cores, ua)
-        js_script += _EXTRA_STEALTH
         await context.add_init_script(js_script)
+        await context.add_init_script(_EXTRA_STEALTH)
 
     return browser, context
 
