@@ -130,6 +130,7 @@ async def save_page(
     *,
     gates_enabled: dict | None = None,
     gate_args: dict | None = None,
+    proxy: dict | None = None
 ):
     """Entry‑point: capture a page using CamouFox if available, else fallback."""
 
@@ -150,7 +151,11 @@ async def save_page(
         if _HAS_CAMOUFOX and "Firefox" in gate_args['UserAgentGate'].get("user_agent"):
             # Native‑stealth path – no JS patches needed
             print("[INFO] Launching CamouFox browser...")
-            async with AsyncCamoufox(headless=False) as browser:  # type: ignore
+            async with AsyncCamoufox(
+                    headless=True,
+                    proxy=proxy,
+                    geoip=True
+            ) as browser:
                 context = await browser.new_context()
                 await _grab(
                     browser,
@@ -170,7 +175,7 @@ async def save_page(
         else:
             # Playwright + JS‑stealth patches
             async with async_playwright() as p:
-                browser, context = await create_context(p, gate_args)
+                browser, context = await create_context(p, gate_args, proxy=proxy)
                 await _grab(
                     browser,
                     context,
@@ -189,7 +194,7 @@ async def save_page(
     else:
         # Playwright without User Agent Spoofing
         async with async_playwright() as p:
-            browser, context = await create_context(p, gate_args)
+            browser, context = await create_context(p, gate_args, proxy=proxy)
             await _grab(
                 browser,
                 context,

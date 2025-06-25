@@ -12,6 +12,7 @@ def main():
     parser.add_argument('--ref', help='Referrer header')
     parser.add_argument('--ua', help='User-Agent header, e.g. Windows;;Chrome ')
     parser.add_argument('--lang', help='Accept-Language header')
+    parser.add_argument('--proxy', help='SOCKS5/HTTP proxy server (e.g. socks5://127.0.0.1:9050)')
     args = parser.parse_args()
 
     url_to_save = args.url
@@ -56,8 +57,11 @@ def main():
     else:
         gates_enabled['LanguageGate'] = False
 
+    # Proxy support
+    proxy = {"server": args.proxy} if args.proxy else None
+
     print(f'[INFO] Output directory: {output_folder}')
-    asyncio.run(save_page(url_to_save, output_folder, gates_enabled=gates_enabled, gate_args=gate_args))
+    asyncio.run(save_page(url_to_save, output_folder, gates_enabled=gates_enabled, gate_args=gate_args, proxy=proxy))
 
 if __name__ == '__main__':
     main()

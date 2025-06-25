@@ -189,6 +189,7 @@ def _fwk_js_patch(languages: Tuple[str, ...], tz: str, mem: int, cores: int, ua:
 async def create_context(
     playwright: Playwright,
     gate_args: Optional[Dict[str, Any]] = None,
+    proxy=None
 ) -> Tuple[Browser, BrowserContext]:
     """Launch a browser context whose engine and JS surfaces align with the UA."""
 
@@ -199,6 +200,7 @@ async def create_context(
     tz_id = _timezone_from_gate(gate_args)
 
     engine = _engine_from_ua(ua)
+    launcher = getattr(playwright, engine)
 
     # Random hardware specs each run
     rand_mem = random.choice(_MEM_CHOICES)
@@ -245,11 +247,14 @@ async def create_context(
         )
 
     # Launch correct engine
-    launcher = getattr(playwright, engine)
-    browser: Browser = await launcher.launch(
-        headless=True,
-        args=["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
-    )
+    launch_args: Dict[str, Any] = {
+        "headless": True,
+        "args": ["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
+    }
+    if proxy:
+        launch_args["proxy"] = proxy
+
+    browser: Browser = await launcher.launch(**launch_args)
 
     ctx_args: Dict[str, Any] = {
         "user_agent": fp["ua"],
