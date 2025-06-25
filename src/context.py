@@ -244,7 +244,7 @@ async def create_context(
     # Launch correct engine
     launcher = getattr(playwright, engine)
     browser: Browser = await launcher.launch(
-        headless=False,
+        headless=True,
         args=["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
     )
 
