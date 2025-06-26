@@ -14,7 +14,7 @@ playwright install
 
 ## Usage
 
-Running this command will save data to `./data/saved_\<domain\>`
+Running this command will save data to `./data/saved_<domain>`
 ```bash
 python main.py https://example.com
 ```
