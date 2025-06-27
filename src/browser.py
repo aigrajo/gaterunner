@@ -8,8 +8,11 @@ saves final downloads, and tallies stats: downloads / warnings / errors.
 
 from __future__ import annotations
 import asyncio, os
+import hashlib
 from contextlib import suppress
 from pathlib import Path
+from urllib.parse import urlparse
+
 from playwright.async_api import async_playwright, Error
 
 try:
@@ -124,6 +127,14 @@ async def save_page(
 ):
     gates_enabled = gates_enabled or {}
     gate_args = gate_args or {}
+
+
+    parsed = urlparse(url)
+    netloc = parsed.netloc.replace(":", "_")
+    path = parsed.path.strip("/").replace("/", "_") or "root"
+    slug = f"{netloc}_{path}"
+    short_hash = hashlib.md5(url.encode()).hexdigest()[:6]
+    out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}_{short_hash}")
 
     pause_ms = gate_args.get("scroll_pause_ms", 150)
     max_scrolls = gate_args.get("max_scrolls")
