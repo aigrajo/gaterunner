@@ -1,69 +1,103 @@
-import os
-import hashlib
+"""
+resources.py – save network responses useful for analysis.
+"""
+
+from __future__ import annotations
+import hashlib, json, os, re
 from urllib.parse import urlparse
-import json
+from playwright.async_api import Error
 from .utils import RESOURCE_DIRS
 
-def get_filename_from_url(url, ext=''):
-    path = urlparse(url).path
-    filename = os.path.basename(path) or 'index'
-    url_hash = hashlib.md5(url.encode('utf-8')).hexdigest()[:8]
-    name, orig_ext = os.path.splitext(filename)
+_FILENAME_RE = re.compile(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)')
+
+def _guess_ext(ct: str) -> str:
+    if "text/css" in ct:            return ".css"
+    if "javascript" in ct:          return ".js"
+    if ct.startswith("image/"):     return "." + ct.split("/")[1].split(";")[0]
+    if ct.startswith("font/"):      return "." + ct.split("/")[1].split(";")[0]
+    if "html" in ct:                return ".html"
+    if "pdf" in ct:                 return ".pdf"
+    if "exe" in ct:                 return ".exe"
+    if "zip" in ct:                 return ".zip"
+    return ""
+
+def _fname_from_cd(cd: str | None) -> str | None:
+    if not cd:
+        return None
+    m = _FILENAME_RE.search(cd)
+    return m.group(1) if m else None
+
+def _fname_from_url(url: str, ext: str) -> str:
+    stem, orig_ext = os.path.splitext(os.path.basename(urlparse(url).path) or "index")
     if not orig_ext and ext:
         orig_ext = ext
-    return f'{name}_{url_hash}{orig_ext}'
+    h = hashlib.md5(url.encode()).hexdigest()[:8]
+    return f"{stem}_{h}{orig_ext}"
 
-async def handle_request(request, resource_urls):
-    if request.resource_type in {"document", "stylesheet", "script", "image", "font", "media"}:
+# ───────────────────────── Hooks ──────────────────────────
+
+async def handle_request(request, resource_urls: set[str]):
+    if request.resource_type in {
+        "document", "stylesheet", "script", "image",
+        "font", "media", "other"
+    }:
         print(f"[RESOURCE] {request.resource_type.upper()}: {request.url}")
         resource_urls.add(request.url)
 
-async def handle_response(response, output_dir, url_to_local, resource_response_headers, stats):
-    req = response.request
-    if req.resource_type not in {"document", "stylesheet", "script", "image", "font", "media"}:
+async def handle_response(
+    response,
+    output_dir: str,
+    url_to_local: dict[str, str],
+    resp_hdrs: dict[str, dict],
+    stats: dict,
+):
+    req_type = response.request.resource_type
+    if req_type not in {
+        "document", "stylesheet", "script", "image",
+        "font", "media", "other"
+    }:
         return
 
-    url2 = response.url
-    resource_response_headers[url2] = {
-        "status_code": response.status,
-        "headers": dict(response.headers),
-    }
+    url = response.url
+    resp_hdrs[url] = {"status_code": response.status,
+                      "headers": dict(response.headers)}
 
-    # Derive file-extension from Content-Type
+    # nothing useful to save for redirects
+    if 300 <= response.status < 400:
+        return
+
     ct = response.headers.get("content-type", "")
-    ext = ""
-    if "text/css" in ct:
-        ext = ".css"
-    elif "javascript" in ct:
-       ext = ".js"
-    elif "image/" in ct:
-        ext = "." + ct.split("/")[1].split(";")[0]
-    elif "font/" in ct:
-        ext = "." + ct.split("/")[1].split(";")[0]
-    elif "html" in ct:
-        ext = ".html"
+    cd = response.headers.get("content-disposition", "")
+    ext = _guess_ext(ct) or os.path.splitext(urlparse(url).path)[1]
+    fname = _fname_from_cd(cd) or _fname_from_url(url, ext)
 
-    subdir = RESOURCE_DIRS.get(req.resource_type, "other")
-    basename = get_filename_from_url(url2, ext)
+    subdir = RESOURCE_DIRS.get(req_type, "other")
     dirpath = os.path.join(output_dir, subdir) if subdir else output_dir
     os.makedirs(dirpath, exist_ok=True)
-    filepath = os.path.join(dirpath, basename)
-    url_to_local[url2] = os.path.relpath(filepath, output_dir)
+    fpath = os.path.join(dirpath, fname)
+    url_to_local[url] = os.path.relpath(fpath, output_dir)
 
     try:
         body = await response.body()
-        with open(filepath, "wb") as fh:
-            fh.write(body)
-    except Exception as exc:
-        print(f"[ERROR] Could not save {url2}: {exc}")
+        if body:
+            with open(fpath, "wb") as fh:
+                fh.write(body)
+    except Error as e:
+        # Expected for downloads (no body accessible) – warn, don’t error
+        if "Network.getResponseBody" in str(e):
+            print(f"[WARN] Body unavailable (download): {url}")
+            return
+        print(f"[ERROR] Could not save {url}: {e}")
         stats["errors"] += 1
 
-def save_json(filepath, data):
-    with open(filepath, "w", encoding="utf-8") as fh:
+# ───────────────────────── Utils ──────────────────────────
+
+def save_json(path: str, data):
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
 
-async def save_screenshot(page, output_dir):
+async def save_screenshot(page, out_dir: str):
     try:
-        await page.screenshot(path=f"{output_dir}/screenshot.png", full_page=True)
+        await page.screenshot(path=f"{out_dir}/screenshot.png", full_page=True)
     except Exception:
-        print("[WARN] Could not take screenshot; page already closed")
+        print("[WARN] screenshot failed (page closed)")

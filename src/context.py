@@ -1,9 +1,6 @@
 """
 context.py – create a Playwright **BrowserContext** with a JavaScript and
-network fingerprint that matches the supplied User‑Agent string. This version
-adds deeper stealth patches: navigator.userAgentData, navigator.webdriver,
-WebRTC/mediaDevices, touch APIs, improved canvas noise and randomised WebGL
-vendor/renderer.
+network fingerprint that matches the supplied User-Agent string.
 """
 
 from __future__ import annotations
@@ -27,7 +24,7 @@ except ImportError:  # library not installed – fallback to simple rules
     _HAS_HTTPAGENT = False
 
 # ──────────────────────────────
-# playwright‑stealth poly‑loader (Chromium only)
+# playwright-stealth poly-loader (Chromium only)
 # ──────────────────────────────
 
 async def _build_apply_stealth():
@@ -96,38 +93,28 @@ _DEFAULT_UA = (
 _MEM_CHOICES = [4, 6, 8, 12, 16, 24, 32]  # in GiB
 _CORE_CHOICES = [4, 6, 8, 12, 16]
 
-# Real WebGL vendor/renderer pairs sourced from real‑world hardware.
+# Real WebGL vendor/renderer pairs sourced from real-world hardware.
 _WEBGL_CHOICES: Tuple[Tuple[str, str], ...] = (
-    #("Google Inc.", "ANGLE (Intel(R) UHD Graphics 630)"),
     ("Google Inc.", "ANGLE (NVIDIA GeForce RTX 3060 Laptop GPU Direct3D11 vs_5_0 ps_5_0)"),
-    #("Google Inc.", "ANGLE (AMD Radeon RX 6800 XT Direct3D11 vs_5_0 ps_5_0)"),
-    #("Google Inc.", "ANGLE (Apple M1 Pro)"),
 )
 
 _WEBGL_BY_OS = {
     "windows": (
         ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060/PCIe/SSE2"),
-        #("Intel",              "Intel(R) UHD Graphics 630"),
-        #("AMD",                "AMD Radeon RX 6800 XT"),
     ),
-    "mac": (
-        #("Apple Inc.",         "Apple M1 Pro"),
-    ),
-    "linux": (
-        #("Intel",              "Mesa Intel(R) UHD Graphics 630"),
-        #("AMD",                "AMD Radeon RX 6800 XT (RADV NAVI21)"),
-    ),
+    "mac":   tuple(),
+    "linux": tuple(),
 }
 
 def _pick_webgl_pair(ua: str) -> Tuple[str, str]:
     """Return a realistic (vendor, renderer) pair based on the OS detected in the UA."""
     low = ua.lower()
     if "mac os" in low or "macos" in low:
-        pool = _WEBGL_BY_OS["mac"]
+        pool = _WEBGL_BY_OS["mac"] or _WEBGL_CHOICES
     elif "windows" in low:
-        pool = _WEBGL_BY_OS["windows"]
+        pool = _WEBGL_BY_OS["windows"] or _WEBGL_CHOICES
     else:
-        pool = _WEBGL_BY_OS["linux"]
+        pool = _WEBGL_BY_OS["linux"] or _WEBGL_CHOICES
     return random.choice(pool)
 
 _SCREEN_CHOICES: Tuple[Tuple[int, int], ...] = (
@@ -140,7 +127,7 @@ _SCREEN_CHOICES: Tuple[Tuple[int, int], ...] = (
 
 
 def _engine_from_ua(ua: str) -> str:
-    """Best‑effort engine detection from UA string."""
+    """Best-effort engine detection from UA string."""
     if _HAS_HTTPAGENT:
         parsed = httpagentparser.detect(ua)  # type: ignore
         browser = (parsed.get("browser") or {})
@@ -189,9 +176,25 @@ def _fwk_js_patch(languages: Tuple[str, ...], tz: str, mem: int, cores: int, ua:
 async def create_context(
     playwright: Playwright,
     gate_args: Optional[Dict[str, Any]] = None,
-    proxy=None
+    proxy=None,
+    *,
+    accept_downloads: bool = False,
+    **extra_ctx_kwargs,
 ) -> Tuple[Browser, BrowserContext]:
-    """Launch a browser context whose engine and JS surfaces align with the UA."""
+    """
+    Launch a browser context whose engine and JS surfaces align with the UA.
+
+    Parameters
+    ----------
+    playwright : Playwright instance
+    gate_args  : dict of Gate configuration (UserAgentGate, etc.)
+    proxy      : Playwright proxy dict
+    accept_downloads : bool
+        If True, downloaded files are kept on disk so callers can persist them
+        via ``download.save_as()``.
+    extra_ctx_kwargs : dict
+        Any additional keyword args passed straight to ``browser.new_context``.
+    """
 
     gate_args = gate_args or {}
 
@@ -212,7 +215,7 @@ async def create_context(
     # Choose WebGL vendor/renderer (Chromium only)
     webgl_vendor, webgl_renderer = _pick_webgl_pair(ua)
 
-    # Chromium‑specific high‑entropy hints
+    # Chromium-specific high-entropy hints
     if engine == "chromium":
         entropy = extract_high_entropy_hints(ua)
         brand, brand_v = parse_chromium_ua(ua)
@@ -262,6 +265,8 @@ async def create_context(
         "timezone_id": fp["tz"],
         "viewport": {"width": screen_w, "height": screen_h},
         "screen": {"width": screen_w, "height": screen_h},
+        "accept_downloads": accept_downloads,
+        **extra_ctx_kwargs,
     }
     geo = gate_args.get("GeolocationGate", {}).get("geolocation")
     if geo is not None:
@@ -352,7 +357,9 @@ if __name__ == "__main__":
     async def _demo():
         async with async_playwright() as p:
             browser, ctx = await create_context(
-                p, {"UserAgentGate": {"user_agent": args.ua}}
+                p,
+                {"UserAgentGate": {"user_agent": args.ua}},
+                accept_downloads=False,  # override if you want to test downloads
             )
             page = await ctx.new_page()
             await page.goto("https://httpbin.org/headers")
