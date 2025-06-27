@@ -112,7 +112,9 @@ async def _grab(
                 from .html import save_html_files
                 save_html_files(out_dir, html, url_map)
 
+    print(f"Captured {len(res_urls)} resources")
     print(f"downloads={stats['downloads']} warnings={stats['warnings']} errors={stats['errors']}")
+
     await browser.close()
 
 # ───────────────────────── public API ──────────────────────────────
