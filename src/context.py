@@ -360,6 +360,7 @@ async def create_context(
     proxy=None,
     *,
     accept_downloads: bool = False,
+    headless: bool = True,
     **extra_ctx_kwargs,
 ) -> Tuple[Browser, BrowserContext]:
     """Launch a browser context whose surfaces align with the UA."""
@@ -421,7 +422,7 @@ async def create_context(
 
     # ───── launch browser ─────
     launch_args: Dict[str, Any] = {
-        "headless": True,
+        "headless": headless,
         "args": ["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
     }
     if proxy:

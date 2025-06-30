@@ -25,6 +25,7 @@ def is_valid_lang(lang: str) -> bool:
 
 
 def main():
+    # Arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('url', help='URL to download')
     parser.add_argument('--country', help='Country code geolocation emulation (e.g. US, UK, FR)')
@@ -34,6 +35,8 @@ def main():
     parser.add_argument('--proxy', help='SOCKS5/HTTP proxy (e.g. socks5://127.0.0.1:9050)')
     parser.add_argument('--engine', choices=["auto", "playwright", "camoufox"], default="auto",
                         help="Browser engine to use (default: auto-detect from UA)")
+    parser.add_argument('--headful', action='store_true',
+                        help='Launch browser in headful (non-headless) mode')
 
     args = parser.parse_args()
 
@@ -104,7 +107,8 @@ def main():
         gates_enabled=gates_enabled,
         gate_args=gate_args,
         proxy=proxy,
-        engine=args.engine
+        engine=args.engine,
+        headless = not args.headful
     ))
 
 

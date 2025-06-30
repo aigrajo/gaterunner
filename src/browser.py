@@ -58,6 +58,7 @@ async def _grab(
     max_scrolls: int | None,
     gates_enabled,
     gate_args,
+    headless: bool
 ):
     # gates (UA spoof etc.)
     await run_gates(
@@ -118,6 +119,13 @@ async def _grab(
                 from .html import save_html_files
                 save_html_files(out_dir, html, url_map)
 
+    if not page.is_closed() and not headless:
+        print("[INFO] Headful mode active – interact with the page. Close the tab to continue.")
+        try:
+            await page.wait_for_event("close", timeout=1000000)
+        except KeyboardInterrupt:
+            print("[INFO] Keyboard interrupt detected. Exiting...")
+
     print(f"Captured {len(res_urls)} resources")
     print(f"downloads={stats['downloads']} warnings={stats['warnings']} errors={stats['errors']}")
 
@@ -132,7 +140,8 @@ async def save_page(
     gates_enabled: dict | None = None,
     gate_args: dict | None = None,
     proxy: dict | None = None,
-    engine: str = "auto"
+    engine: str = "auto",
+    headless: bool = True
 ):
     gates_enabled = gates_enabled or {}
     gate_args = gate_args or {}
@@ -157,7 +166,7 @@ async def save_page(
             br, ctx, url, out_dir,
             res_urls, req_hdrs, resp_hdrs, url_map, stats,
             pause_ms=pause_ms, max_scrolls=max_scrolls,
-            gates_enabled=gates_enabled, gate_args=gate_args,
+            gates_enabled=gates_enabled, gate_args=gate_args, headless=headless
         )
 
     # choose engine (CamouFox vs stock)
@@ -176,7 +185,7 @@ async def save_page(
     if use_camoufox:
         try:
             print("[INFO] Launching CamouFox browser")
-            async with AsyncCamoufox(headless=True, proxy=proxy, geoip=True) as br:
+            async with AsyncCamoufox(headless=headless, proxy=proxy, geoip=True) as br:
                 try:
                     ctx = await br.new_context(accept_downloads=True)
                 except TypeError:
@@ -189,5 +198,5 @@ async def save_page(
 
     async with async_playwright() as p:
         br, ctx = await create_context(p, gate_args, proxy=proxy,
-                                       accept_downloads=True)
+                                       accept_downloads=True, headless=headless)
         await _run(br, ctx)
