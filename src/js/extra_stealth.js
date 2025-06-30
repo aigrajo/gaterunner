@@ -156,4 +156,115 @@
     Object.defineProperty(navigator, 'getBattery',
       { value: undefined, configurable: false });
   }
-})(); 
+})();
+
+(() => {
+  const fp = window.__fp;
+  if (!fp) return;
+
+  /* 1. navigator.userAgentData */
+  Object.defineProperty(navigator, 'userAgentData', {
+    get() {
+      return {
+        brands: [
+          { brand: fp.brand || 'Chromium', version: fp.brand_v || fp.chromium_v },
+          { brand: 'Chromium',             version: fp.chromium_v },
+          { brand: 'Not)A;Brand',          version: '99' }
+        ],
+        mobile: fp.mobile || false,
+        getHighEntropyValues: keys =>
+          Promise.resolve(keys.reduce((o, k) => {
+            const map = {
+              architecture:     fp.arch,
+              bitness:          fp.bitness,
+              model:            fp.model,
+              platform:         fp.platform,
+              platformVersion:  fp.platform_version,
+              uaFullVersion:    fp.ua_full_version
+            };
+            if (k in map) o[k] = map[k];
+            return o;
+          }, {}))
+      };
+    },
+    configurable: true
+  });
+
+  /* 2. WebGPU adapter spoof */
+  if ('gpu' in navigator && navigator.gpu?.requestAdapter) {
+    const fakeAdapter = {
+      name:        fp.webgl_renderer,
+      vendor:      fp.webgl_vendor,
+      architecture: fp.arch,
+      driver:      '0',
+      isSoftware:  false,
+      limits:      {},
+      features:    new Set()
+    };
+    navigator.gpu.requestAdapter = () => Promise.resolve(fakeAdapter);
+  }
+
+  /* 3. Remove storageBuckets / credentials */
+  delete Navigator.prototype.storageBuckets;
+  delete Navigator.prototype.credentials;
+
+  /* 4. Remove HID / USB / Serial if not ChromeOS */
+  if (!fp.os_chrome_os) {
+    delete Navigator.prototype.hid;
+    delete Navigator.prototype.usb;
+    delete Navigator.prototype.serial;
+  }
+
+  /* 5. Slow-reject timing for MIDI & getUserMedia */
+  const slowReject = () =>
+    new Promise((_, rej) =>
+      setTimeout(() => rej(new DOMException('', 'NotSupportedError')),
+                 300 + Math.random() * 300));
+
+  navigator.requestMIDIAccess = slowReject;
+  if (navigator.mediaDevices?.getUserMedia) {
+    navigator.mediaDevices.getUserMedia = slowReject;
+  }
+
+  /* 6. Clean minor surfaces */
+  [
+    'devicePosture', 'ink', 'wakeLock',
+    'adAuctionComponents', 'runAdAuction',
+    'joinAdInterestGroup', 'updateAdInterestGroups',
+    'leaveAdInterestGroup', 'clearAppBadge',
+    'canLoadAdAuctionFencedFrame', 'createAuctionNonce'
+  ].forEach(key => delete Navigator.prototype[key]);
+})();
+
+(() => {
+  /* helpers */
+  const makePlugin = (name, file, description) =>
+    Object.freeze({ name, filename: file, description, length: 0 });
+
+  const makeMime = (type, suffixes, plugin) =>
+    Object.freeze({ type, suffixes, description: '', enabledPlugin: plugin });
+
+  /* fake one-plugin list */
+  const pdfPlugin = makePlugin('PDF Viewer', 'internal-pdf-viewer',
+                               'Portable Document Format');
+
+  const pluginsArray = Object.freeze({
+    0: pdfPlugin,
+    length: 1,
+    item:       i => (i === 0 ? pdfPlugin : undefined),
+    namedItem:  n => (/pdf/i.test(n) ? pdfPlugin : undefined),
+    refresh:    () => {}
+  });
+
+  const pdfMime = makeMime('application/pdf', 'pdf', pdfPlugin);
+  const mimesArray = Object.freeze({
+    0: pdfMime,
+    length: 1,
+    item:       i => (i === 0 ? pdfMime : undefined),
+    namedItem:  t => (/pdf/i.test(t) ? pdfMime : undefined)
+  });
+
+  /* overwrite navigator.plugins & navigator.mimeTypes */
+  Object.defineProperty(navigator, 'plugins',  { get: () => pluginsArray, configurable: true });
+  Object.defineProperty(navigator, 'mimeTypes', { get: () => mimesArray, configurable: true });
+})();

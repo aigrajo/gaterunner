@@ -15,7 +15,9 @@
     uaFullVersion:   "{uaFullVersion}",
     fullVersionList: [
       {{ brand: "Chromium", version: "{uaFullVersion}" }},
-      {{ brand: "{brand}",  version: "{uaFullVersion}" }}
+      {{ brand: "{brand}",  version: "{uaFullVersion}" }},
+      {{ brand: "Not.A/Brand", version: "99" }}
+
     ],
 
     getHighEntropyValues(hints) {{
