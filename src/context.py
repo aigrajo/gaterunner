@@ -93,6 +93,23 @@ _FWK_STEALTH_TEMPLATE = _FWK_STEALTH_PATH.read_text(encoding="utf-8")
 _CHROMIUM_STEALTH_TEMPLATE = _CHROMIUM_STEALTH_PATH.read_text(encoding="utf-8")
 _WEBGL_PATCH_TEMPLATE = _WEBGL_PATCH_PATH.read_text(encoding="utf-8")
 
+#General stealth
+_EXTRA_JS_FILES = [
+    "canvas_webgl_noise.js",
+    "audio_context_noise.js",
+    "font_mask.js",
+    "webrtc_leak_block.js",
+    "dpr_css_patch.js",
+    "sensor_api_stub.js",
+    "network_info_stub.js",
+    "speech_synthesis_stub.js",
+    "gamepad_midi_hid.js",
+    "performance_timing.js",
+]
+_EXTRA_JS_SNIPPETS = {
+    name: (_JS_DIR / name).read_text("utf-8") for name in _EXTRA_JS_FILES
+}
+
 _DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -487,6 +504,9 @@ async def create_context(
         js_script = _fwk_js_patch(languages, fp["tz"], ua)
         await context.add_init_script(js_script)
         await context.add_init_script(_EXTRA_STEALTH)
+
+    for body in _EXTRA_JS_SNIPPETS.values():
+        await context.add_init_script(body)
 
     return browser, context
 
