@@ -96,15 +96,37 @@ _CORE_CHOICES = [4, 6, 8, 12, 16]
 # Real WebGL vendor/renderer pairs sourced from real-world hardware.
 _WEBGL_CHOICES: Tuple[Tuple[str, str], ...] = (
     ("Google Inc.", "ANGLE (NVIDIA GeForce RTX 3060 Laptop GPU Direct3D11 vs_5_0 ps_5_0)"),
+    ("Google Inc.", "ANGLE (AMD Radeon RX 6700 XT Direct3D11 vs_5_0 ps_5_0)"),
+    ("Google Inc.", "ANGLE (Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)"),
+    ("Google Inc.", "ANGLE (Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0)"),
+    ("Google Inc.", "ANGLE (Apple M1 GPU Metal)"),
+    ("Google Inc.", "ANGLE (NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0)"),
+    ("Google Inc.", "ANGLE (NVIDIA GeForce RTX 4080 Direct3D11 vs_5_0 ps_5_0)"),
+    ("Google Inc.", "ANGLE (Intel(R) HD Graphics 530 Direct3D11 vs_5_0 ps_5_0)"),
 )
 
 _WEBGL_BY_OS = {
     "windows": (
         ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060/PCIe/SSE2"),
+        ("NVIDIA Corporation", "NVIDIA GeForce GTX 1060/PCIe/SSE2"),
+        ("NVIDIA Corporation", "NVIDIA GeForce GTX 1650/PCIe/SSE2"),
+        ("Intel", "Intel(R) HD Graphics 530"),
+        ("Intel", "Intel(R) Iris(R) Xe Graphics"),
+        ("AMD", "AMD Radeon RX 580"),
+        ("AMD", "AMD Radeon RX 6700 XT"),
     ),
-    "mac":   tuple(),
-    "linux": tuple(),
+    "mac": (
+        ("Apple Inc.", "Apple M1"),
+        ("Apple Inc.", "Apple M2"),
+        ("Apple Inc.", "AMD Radeon Pro 560X"),
+    ),
+    "linux": (
+        ("Intel", "Mesa Intel(R) UHD Graphics 620 (KBL GT2)"),
+        ("AMD", "AMD Radeon RX 570 Series (POLARIS10, DRM 3.35.0, 5.4.0-42-generic, LLVM 10.0.0)"),
+        ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060/PCIe/SSE2"),
+    ),
 }
+
 
 def _pick_webgl_pair(ua: str) -> Tuple[str, str]:
     """Return a realistic (vendor, renderer) pair based on the OS detected in the UA."""
@@ -123,7 +145,18 @@ _SCREEN_CHOICES: Tuple[Tuple[int, int], ...] = (
     (1366, 768),
     (1536, 864),
     (2880, 1800),
+    (3840, 2160),   # 4K monitors
+    (1600, 900),
+    (1440, 900),
+    (1280, 800),
+    (1024, 768),
+    (2736, 1824),   # Surface Pro
+    (1920, 1200),   # widescreen variants
+    (2160, 1440),   # MacBooks and tablets
+    (3200, 1800),
+    (1280, 720),    # baseline 720p
 )
+
 
 
 def _engine_from_ua(ua: str) -> str:

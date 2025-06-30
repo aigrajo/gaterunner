@@ -20,7 +20,7 @@ while read -r raw_url; do
     # Config
      python main.py "$url" \
         --country US \
-        --ua "Windows;;Firefox" \
+        --ua "Windows;;Chrome" \
         --lang "en-US" # > /dev/null 2>&1
 
 
