@@ -98,35 +98,88 @@
     navigator.mediaDevices.__patched = true;
   }
 
-  /* ----------------------------------------------------------------------------
-   * realistic plugins + mimeTypes
-   * --------------------------------------------------------------------------*/
-  (function () {
-    /* use the real empty arrays to keep correct [[Class]] */
-    const nativePlugins = navigator.plugins;
-    if (nativePlugins.length === 0) {
-      const pdfPlugin = Object.freeze({
-        description: 'Portable Document Format',
-        filename:    'internal-pdf-viewer',
-        name:        'PDF Viewer',
-        length:      0
-        });
-      Object.defineProperty(nativePlugins, '0', { value: pdfPlugin, writable: false });
-      Object.defineProperty(nativePlugins, 'length', { value: 1, writable: false });
-    }
+/* ---------- plugin & mimeType tidy-up (five default viewers) ---------- */
+/* ---------- final plugin & mimeType patch (native object, 5 plugins) -- */
+(() => {
+  const navProto   = Navigator.prototype;
+  const nativePlug = navigator.plugins;
+  const nativeMime = navigator.mimeTypes;
 
-    const nativeMimes = navigator.mimeTypes;
-    if (nativeMimes.length === 0) {
-      const pdfMime = Object.freeze({
-        type:          'application/pdf',
-        suffixes:      'pdf',
-        description:   '',
-        enabledPlugin: nativePlugins[0]
-        });
-      Object.defineProperty(nativeMimes, '0', { value: pdfMime, writable: false });
-      Object.defineProperty(nativeMimes, 'length', { value: 1, writable: false });
-    }
-  })();
+  /* bail if already patched or not present */
+  if (!nativePlug || nativePlug.__patched) return;
+
+  /* wipe existing entries ---------------------------------------------------- */
+  const clearALike = obj => {
+    const n = obj.length >>> 0;
+    for (let i = 0; i < n; i++) delete obj[i];
+  };
+  clearALike(nativePlug);
+  clearALike(nativeMime);
+
+  /* helpers ------------------------------------------------------------------ */
+  function makeMime(type, plugin) {
+    return Object.freeze({
+      type, suffixes: 'pdf',
+      description: 'Portable Document Format',
+      enabledPlugin: plugin
+    });
+  }
+  function makePlugin(name) {
+    /* create a blank object whose [[Prototype]] is the native PDF plugin’s proto
+       so all internal slots stay valid and instanceof checks pass            */
+    const plugin = Object.create(Object.getPrototypeOf(nativePlug[0] || {}));
+
+    Object.assign(plugin, {
+      name,
+      filename:    'internal-pdf-viewer',
+      description: 'Portable Document Format'
+    });
+
+    /* two MIME types -------------------------------------------------------- */
+    const m0 = makeMime('application/pdf', plugin);
+    const m1 = makeMime('text/pdf',        plugin);
+    plugin[0] = m0;
+    plugin[1] = m1;
+
+    /* expose length as **2** with an accessor to override the old 8 ---------- */
+    Object.defineProperty(plugin, 'length', { get: () => 2 });
+    plugin.item      = i => (i === 0 ? m0 : i === 1 ? m1 : null);
+    plugin.namedItem = t => /pdf/i.test(t) ? m0 : null;
+
+    return { plugin, mimes: [m0, m1] };
+  }
+
+  const names = [
+    'PDF Viewer',
+    'Chrome PDF Viewer',
+    'Chromium PDF Viewer',
+    'Microsoft Edge PDF Viewer',
+    'WebKit built-in PDF'
+  ];
+
+  const built   = names.map(makePlugin);
+  const plugins = built.map(b => b.plugin);
+  const mimes   = built.flatMap(b => b.mimes);
+
+  /* repopulate native PluginArray ------------------------------------------- */
+  plugins.forEach((p, i) => { nativePlug[i] = p; });
+  Object.defineProperty(nativePlug, 'length', { get: () => plugins.length });
+  nativePlug.item      = i => nativePlug[i] || null;
+  nativePlug.namedItem = n => plugins.find(p => p.name === n) || null;
+  nativePlug.refresh   = () => {};
+  /* ensure toString & prototype checks pass */
+  nativePlug.toString = () => '[object PluginArray]';
+
+  /* repopulate native MimeTypeArray ----------------------------------------- */
+  mimes.forEach((m, i) => { nativeMime[i] = m; });
+  Object.defineProperty(nativeMime, 'length', { get: () => mimes.length });
+  nativeMime.item      = i => nativeMime[i] || null;
+  nativeMime.namedItem = t => mimes.find(m => m.type === t) || null;
+
+  /* flag so we don’t patch twice */
+  Object.defineProperty(nativePlug, '__patched', { value: true });
+})();
+
 
   /* privacy flags */
   Object.defineProperty(navigator, 'doNotTrack', { get: () => 'unspecified' });
@@ -236,35 +289,4 @@
   ].forEach(key => delete Navigator.prototype[key]);
 })();
 
-(() => {
-  /* helpers */
-  const makePlugin = (name, file, description) =>
-    Object.freeze({ name, filename: file, description, length: 0 });
 
-  const makeMime = (type, suffixes, plugin) =>
-    Object.freeze({ type, suffixes, description: '', enabledPlugin: plugin });
-
-  /* fake one-plugin list */
-  const pdfPlugin = makePlugin('PDF Viewer', 'internal-pdf-viewer',
-                               'Portable Document Format');
-
-  const pluginsArray = Object.freeze({
-    0: pdfPlugin,
-    length: 1,
-    item:       i => (i === 0 ? pdfPlugin : undefined),
-    namedItem:  n => (/pdf/i.test(n) ? pdfPlugin : undefined),
-    refresh:    () => {}
-  });
-
-  const pdfMime = makeMime('application/pdf', 'pdf', pdfPlugin);
-  const mimesArray = Object.freeze({
-    0: pdfMime,
-    length: 1,
-    item:       i => (i === 0 ? pdfMime : undefined),
-    namedItem:  t => (/pdf/i.test(t) ? pdfMime : undefined)
-  });
-
-  /* overwrite navigator.plugins & navigator.mimeTypes */
-  Object.defineProperty(navigator, 'plugins',  { get: () => pluginsArray, configurable: true });
-  Object.defineProperty(navigator, 'mimeTypes', { get: () => mimesArray, configurable: true });
-})();
