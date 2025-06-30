@@ -89,12 +89,18 @@ async def _grab(
             stats["errors"] += 1
 
     if downloads:
-        await asyncio.gather(*downloads, return_exceptions=True)
+        results = await asyncio.gather(*downloads, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                print(f"[WARN] Download task failed: {type(result).__name__}: {result}")
 
     # scroll to bottom (if still open)
     if not page.is_closed():
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_load_state("networkidle")
+        try:
+            await page.wait_for_load_state("load", timeout=10000)
+        except Error:
+            print("[WARN] Timeout waiting for load state. Proceeding anyway.")
 
     # artefacts
     os.makedirs(out_dir, exist_ok=True)
@@ -126,6 +132,7 @@ async def save_page(
     gates_enabled: dict | None = None,
     gate_args: dict | None = None,
     proxy: dict | None = None,
+    engine: str = "auto"
 ):
     gates_enabled = gates_enabled or {}
     gate_args = gate_args or {}
@@ -155,8 +162,16 @@ async def save_page(
 
     # choose engine (CamouFox vs stock)
     ua = gate_args.get("UserAgentGate", {}).get("user_agent", "")
-    want_camoufox = gate_args.get("engine", "").lower() == "camoufox"
-    use_camoufox = _HAS_CAMOUFOX and (want_camoufox or "firefox" in ua.lower())
+    want_camoufox = engine == "camoufox"
+    force_playwright = engine == "playwright"
+    use_camoufox = _HAS_CAMOUFOX and not force_playwright and (
+            want_camoufox or "firefox" in ua.lower()
+    )
+
+    if use_camoufox and "firefox" in ua.lower() and not want_camoufox:
+        print("[INFO] 'firefox' detected in UA – switching to CamouFox engine.")
+        if any(gates_enabled.get(g) for g in ("UserAgentGate", "GeolocationGate", "LanguageGate")):
+            print("[WARN] CamouFox overrides most spoofing gates – UA/geo/lang spoofing may not apply. Use --engine to switch to Playwright's engine")
 
     if use_camoufox:
         try:
