@@ -33,7 +33,7 @@ def _detect_arch(ua_lower: str):
     for needles, out in ARCH_PATTERNS:
         if any(n in ua_lower for n in needles):
             return out
-    return ('', '', False)          # unknown
+    return '', '', False  # unknown
 
 def _detect_model(ua: str):
     """
@@ -44,10 +44,10 @@ def _detect_model(ua: str):
     @return (str) Model name if matched. Returns empty string if no match found.
     """
     # Android devices: match model from "Build/" pattern first.
-    m = re.search(r'Android [\d.]+; ([^;/\)]+) Build/', ua)
+    m = re.search(r'Android [\d.]+; ([^;/)]+) Build/', ua)
     if not m:
         # Fallback: relaxed Android pattern.
-        m = re.search(r'Android [\d.]+; ([^;\)]+)', ua)
+        m = re.search(r'Android [\d.]+; ([^;)]+)', ua)
     if m:
         return m.group(1).strip()
 
@@ -56,49 +56,34 @@ def _detect_model(ua: str):
     return m.group(1).strip() if m else ''
 
 def _detect_platform(parsed_os):
-    def _detect_platform(parsed_os):
-        """
-        Normalize parsed OS family name to a standard platform label.
+    """
+    Normalize parsed OS family name to a standard platform label.
 
-        @param parsed_os (dict) Dictionary from user_agent_parser.Parse()['os'].
-          Must contain key 'family'.
+    @param parsed_os (dict) Dictionary from user_agent_parser.Parse()['os'].
+      Must contain key 'family'.
 
-        @return (str) Standardized platform name, such as:
-          - 'Windows', 'macOS', 'Android', 'iOS', etc.
-          Returns original family name or empty string if no match.
-        """
-        family = parsed_os['family']
-
-        mapping = {
-            ('Windows', 'Windows NT'): 'Windows',
-            ('Mac OS X', 'Mac OS'): 'macOS',
-            ('Chrome OS',): 'Chrome OS',
-            ('Android',): 'Android',
-            ('iOS', 'iPhone OS'): 'iOS',
-            ('KaiOS',): 'KaiOS',
-            ('Linux',): 'Linux',
-        }
-
-        for keys, value in mapping.items():
-            if family in keys:
-                return value
-
-        return family or ''
-
+    @return (str) Standardized platform name, such as:
+      - 'Windows', 'macOS', 'Android', 'iOS', etc.
+      Returns original family name or empty string if no match.
+    """
     family = parsed_os['family']
+
     mapping = {
         ('Windows', 'Windows NT'): 'Windows',
-        ('Mac OS X', 'Mac OS'):    'macOS',
-        ('Chrome OS',):            'Chrome OS',
-        ('Android',):              'Android',
-        ('iOS', 'iPhone OS'):      'iOS',
-        ('KaiOS',):               'KaiOS',
-        ('Linux',):                'Linux',
+        ('Mac OS X', 'Mac OS'): 'macOS',
+        ('Chrome OS',): 'Chrome OS',
+        ('Android',): 'Android',
+        ('iOS', 'iPhone OS'): 'iOS',
+        ('KaiOS',): 'KaiOS',
+        ('Linux',): 'Linux',
     }
+
     for keys, value in mapping.items():
         if family in keys:
             return value
+
     return family or ''
+
 
 def _detect_platform_version(platform, ua):
     """
