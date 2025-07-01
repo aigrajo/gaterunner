@@ -37,6 +37,7 @@ def main():
                         help="Browser engine to use (default: auto-detect from UA)")
     parser.add_argument('--headful', action='store_true',
                         help='Launch browser in headful (non-headless) mode')
+    parser.add_argument('--timeout', help='Timeout in seconds')
 
     args = parser.parse_args()
 
@@ -106,6 +107,12 @@ def main():
     domain = parsed_url.netloc.replace(':', '_')
     output_folder = f'./data/saved_{domain}'
 
+
+    if args.timeout:
+        timeout = int(args.timeout)
+    else:
+        timeout = 30
+
     print(f'[INFO] Output directory: {output_folder}')
     asyncio.run(save_page(
         args.url, output_folder,
@@ -113,7 +120,8 @@ def main():
         gate_args=gate_args,
         proxy=proxy,
         engine=args.engine,
-        headless = not args.headful
+        headless = not args.headful,
+        timeout_sec=timeout
     ))
 
 

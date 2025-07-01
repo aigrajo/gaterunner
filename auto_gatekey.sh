@@ -18,10 +18,7 @@ while read -r raw_url; do
     echo "[*] Progress: $count/$total ($percent%) | Elapsed: $elapsed"
 
     # Config
-     python main.py "$url" \
-        --country US \
-        --ua "Windows;;Chrome" \
-        --lang "en-US" # > /dev/null 2>&1
+     python main.py "$url" --country US --ua "Windows;;Chrome" --lang "en-US" --timeout 15
 
 
 done < "$input"

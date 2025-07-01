@@ -13,6 +13,7 @@ from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlparse
 
+from playwright._impl._errors import TargetClosedError
 from playwright.async_api import async_playwright, Error
 
 try:
@@ -37,9 +38,14 @@ async def _save_download(dl, out_dir: str, stats: dict):
     name = dl.suggested_filename or _fname_from_url(dl.url, "")
     dst = Path(out_dir) / "downloads" / name
     dst.parent.mkdir(parents=True, exist_ok=True)
-    await dl.save_as(dst)
-    stats["downloads"] += 1
-    print(f"[DOWNLOAD] Saved: {dst.name}")
+
+    try:
+        await dl.save_as(dst)
+        stats["downloads"] += 1
+        print(f"[DOWNLOAD] Saved: {dst.name}")
+    except Exception as e:
+        stats["errors"] += 1
+        print(f"[WARN] Failed to save download {name}: {type(e).__name__}: {e}")
 
 # ───────────────────────── page grabber ─────────────────────────────
 
@@ -90,10 +96,16 @@ async def _grab(
             stats["errors"] += 1
 
     if downloads:
-        results = await asyncio.gather(*downloads, return_exceptions=True)
-        for result in results:
-            if isinstance(result, Exception):
-                print(f"[WARN] Download task failed: {type(result).__name__}: {result}")
+        try:
+            results = await asyncio.gather(*downloads, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    if isinstance(result, TargetClosedError):
+                        print("[INFO] Download aborted due to page/browser closure.")
+                    else:
+                        print(f"[WARN] Download task failed: {type(result).__name__}: {result}")
+        except Exception as e:
+            print(f"[WARN] Download gather interrupted: {type(e).__name__}: {e}")
 
     # scroll to bottom (if still open)
     if not page.is_closed():
@@ -141,11 +153,11 @@ async def save_page(
     gate_args: dict | None = None,
     proxy: dict | None = None,
     engine: str = "auto",
-    headless: bool = True
+    headless: bool = True,
+    timeout_sec: int = 10
 ):
     gates_enabled = gates_enabled or {}
     gate_args = gate_args or {}
-
 
     parsed = urlparse(url)
     netloc = parsed.netloc.replace(":", "_")
@@ -154,7 +166,7 @@ async def save_page(
     short_hash = hashlib.md5(url.encode()).hexdigest()[:6]
     out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}_{short_hash}")
 
-    pause_ms = gate_args.get("scroll_pause_ms", 150)
+    pause_ms = 150
     max_scrolls = gate_args.get("max_scrolls")
 
     res_urls: set[str] = set()
@@ -169,12 +181,11 @@ async def save_page(
             gates_enabled=gates_enabled, gate_args=gate_args, headless=headless
         )
 
-    # choose engine (CamouFox vs stock)
     ua = gate_args.get("UserAgentGate", {}).get("user_agent", "")
     want_camoufox = engine == "camoufox"
     force_playwright = engine == "playwright"
     use_camoufox = _HAS_CAMOUFOX and not force_playwright and (
-            want_camoufox or "firefox" in ua.lower()
+        want_camoufox or "firefox" in ua.lower()
     )
 
     if use_camoufox and "firefox" in ua.lower() and not want_camoufox:
@@ -191,12 +202,28 @@ async def save_page(
                 except TypeError:
                     print("[WARN] CamouFox lacks accept_downloads – downloads must be saved via response body")
                     ctx = await br.new_context()
-                await _run(br, ctx)
+                await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
                 return
+        except TimeoutError:
+            print(f"[ERROR] Timeout: page processing exceeded {timeout_sec} seconds.")
+            stats["errors"] += 1
+            return
         except Exception as e:
             print(f"[WARN] CamouFox failed: {e}. Falling back to stock.")
 
-    async with async_playwright() as p:
-        br, ctx = await create_context(p, gate_args, proxy=proxy,
-                                       accept_downloads=True, headless=headless)
-        await _run(br, ctx)
+    try:
+        async with async_playwright() as p:
+            br, ctx = await create_context(
+                p, gate_args, proxy=proxy,
+                accept_downloads=True, headless=headless
+            )
+            await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
+
+    except TimeoutError:
+        print(f"[ERROR] Timeout: page processing exceeded {timeout_sec} seconds.")
+        stats["errors"] += 1
+
+    except Exception as e:
+        print(f"[ERROR] Unexpected failure: {type(e).__name__}: {e}")
+        stats["errors"] += 1
+
