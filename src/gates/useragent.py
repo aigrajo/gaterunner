@@ -1,6 +1,5 @@
+from src.clienthints import send_ch, generate_sec_ch_ua, generate_sec_ch_ua_model, parse_chromium_full_version, parse_platform_version
 from .base import GateBase
-from src.clienthints import send_ch, generate_sec_ch_ua, generate_sec_ch_ua_model, generate_sec_ch_ua_platform_version, \
-    generate_sec_ch_ua_full_version
 
 
 # Spoofs User-Agent string, optionally includes spoofing client hints string
@@ -17,7 +16,7 @@ class UserAgentGate(GateBase):
                 print(f'[GATE] Client hints spoofed: {ch}')
                 headers['sec-ch-ua'] = ch
                 headers['sec-ch-ua-model'] = generate_sec_ch_ua_model(user_agent)
-                headers['sec-ch-ua-platform-version'] = generate_sec_ch_ua_platform_version(user_agent)
-                headers['sec-ch-ua-full-version'] = generate_sec_ch_ua_full_version(user_agent)
+                headers['sec-ch-ua-platform-version'] = parse_platform_version(user_agent)
+                headers['sec-ch-ua-full-version'] = parse_chromium_full_version(user_agent)
 
         return headers
