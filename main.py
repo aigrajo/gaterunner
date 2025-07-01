@@ -45,6 +45,7 @@ def main():
         print("[ERROR] Invalid URL. Must start with http:// or https:// and have a domain.")
         sys.exit(1)
 
+
     gates_enabled = {}
     gate_args = {}
 
@@ -62,15 +63,19 @@ def main():
 
     # Referrer gate
     if args.ref:
-        gates_enabled['ReferrerGate'] = True
-        gate_args['ReferrerGate'] = {'referrer': args.ref}
+        if is_valid_url(args.ref):
+            gates_enabled['ReferrerGate'] = True
+            gate_args['ReferrerGate'] = {'referrer': args.ref}
+        else:
+            print("[ERROR] Invalid URL. Must start with http:// or https:// and have a domain.")
+            sys.exit(1)
     else:
         gates_enabled['ReferrerGate'] = False
 
     # User-Agent gate
     if args.ua:
         if ';;' not in args.ua:
-            print("[WARN] UA string is missing ';;' separator. This may cause fallback.")
+            print("[WARN] UA string is missing ';;' separator. Falling back to default user agent.")
         gates_enabled['UserAgentGate'] = True
         ua = choose_ua(args.ua)
         gate_args['UserAgentGate'] = {'user_agent': ua}

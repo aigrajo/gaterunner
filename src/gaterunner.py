@@ -1,3 +1,9 @@
+"""
+gaterunner.py
+
+Responsible for enabling gate bypassing techniques. Mainly spoofs http headers
+"""
+
 from src.clienthints import send_ch
 from .gates import ALL_GATES
 

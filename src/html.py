@@ -1,3 +1,9 @@
+"""
+html.py
+
+Rewrites html for offline viewing
+"""
+
 import re
 from bs4 import BeautifulSoup
 import os

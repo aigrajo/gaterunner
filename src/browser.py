@@ -2,7 +2,7 @@
 browser.py
 ==========
 
-Drives Playwright *or* CamouFox, captures every redirect hop,
+Drives Playwright or CamouFox, captures every redirect hop,
 saves final downloads, and tallies stats: downloads / warnings / errors.
 """
 

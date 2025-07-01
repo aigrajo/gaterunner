@@ -1,11 +1,5 @@
 """
 resources.py – save network responses and metadata
-
-Changes in this revision
------------------------
-* Harden filename handling – long or unsafe names are truncated and salted so we never exceed the 255‑character POSIX limit.
-* Regex for `Content‑Disposition` rewritten for clarity (now verbose/X mode) and to avoid bad escapes.
-* Graceful fallback on `OSError` when opening a file still fails (e.g. NTFS reserved names).
 """
 
 from __future__ import annotations

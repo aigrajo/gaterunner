@@ -1,3 +1,9 @@
+'''
+utils.py
+
+Helper functions
+'''
+
 import csv
 import json
 import random

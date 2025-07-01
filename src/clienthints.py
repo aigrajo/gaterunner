@@ -1,3 +1,10 @@
+"""
+clienthints.py
+
+Short library of client hint and high-entropy generation functions.
+Pass a user agent string -> get a client hint value
+"""
+
 import re
 import random
 from ua_parser import user_agent_parser
