@@ -35,6 +35,17 @@ from .resources import (
 # ───────────────────────── download helper ──────────────────────────
 
 async def _save_download(dl, out_dir: str, stats: dict):
+    """
+    Save a download object to the specified output directory.
+
+    @param dl: The download object with a `.save_as` coroutine method and `.url` and `.suggested_filename` attributes.
+
+    @param out_dir (str): The base directory path where the download should be saved.
+
+    @param stats (dict): A dictionary tracking statistics. Increments 'downloads' or 'errors' keys based on outcome.
+
+    @return: None. Updates the file system and modifies `stats` in place.
+    """
     name = dl.suggested_filename or _fname_from_url(dl.url, "")
     dst = Path(out_dir) / "downloads" / name
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -46,6 +57,7 @@ async def _save_download(dl, out_dir: str, stats: dict):
     except Exception as e:
         stats["errors"] += 1
         print(f"[WARN] Failed to save download {name}: {type(e).__name__}: {e}")
+
 
 # ───────────────────────── page grabber ─────────────────────────────
 
@@ -66,6 +78,27 @@ async def _grab(
     gate_args,
     headless: bool
 ):
+
+    """
+    Automate browser-based collection of page content, resources, and downloads.
+
+    @param browser: A playwright Browser instance used for automation.
+    @param context: A BrowserContext object for isolating session data and controlling the page.
+    @param url (str): Target URL to visit and extract data from.
+    @param out_dir (str): Directory where collected files, headers, and screenshots will be saved.
+    @param res_urls (set[str]): Set to be populated with URLs of requested resources.
+    @param req_hdrs (dict): Dictionary to be filled with observed HTTP request headers.
+    @param resp_hdrs (dict): Dictionary to be filled with observed HTTP response headers.
+    @param url_map (dict): Mapping of resource URLs to local filenames.
+    @param stats (dict): Mutable dictionary to track statistics like 'downloads', 'warnings', 'errors'.
+    @param pause_ms (int): Time in milliseconds to pause (currently unused in function).
+    @param max_scrolls (int | None): Optional max number of scrolls to perform on the page (not used here).
+    @param gates_enabled: Feature toggles for gate functions like UA spoofing or JS patching.
+    @param gate_args: Arguments passed to the gate functions for customizing behavior.
+    @param headless (bool): If False, the page will remain open for manual inspection until closed.
+
+    @return: None. Saves output files to `out_dir`, modifies `res_urls`, `req_hdrs`, `resp_hdrs`, `stats` in place.
+    """
     # gates (UA spoof etc.)
     await run_gates(
         None, context,
@@ -156,6 +189,21 @@ async def save_page(
     headless: bool = True,
     timeout_sec: int = 10
 ):
+    """
+    Visit a webpage, collect artefacts, and save all HTTP/session data, optionally using CamouFox or Playwright.
+
+    @param url (str): The target URL to visit and analyze.
+    @param out_dir (str): Base path to save output files (HTML, headers, screenshots, downloads, cookies).
+    @param gates_enabled (dict | None): Dictionary of feature flags for gate-level spoofing or interaction.
+    @param gate_args (dict | None): Arguments for gates such as user-agent, language, geolocation, etc.
+    @param proxy (dict | None): Proxy configuration dict (e.g., {"server": "...", "username": "...", "password": "..."}).
+    @param engine (str): Browser engine selector. Supports "auto", "camoufox", or "playwright".
+    @param headless (bool): If False, opens the browser in headful mode for manual interaction.
+    @param timeout_sec (int): Max seconds to allow page capture before force timeout.
+
+    @return: None. Writes results to `out_dir`, may print warnings or errors, modifies no return values.
+    """
+
     gates_enabled = gates_enabled or {}
     gate_args = gate_args or {}
 
