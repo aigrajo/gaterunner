@@ -14,13 +14,13 @@ playwright install
 
 ## Usage
 
-Running this command will save data to `./data/saved_<domain>`
+Gatekey allows obfuscated URLs. Running this command will save data to `./data/saved_example.com`
 ```bash
-python main.py https://example.com
+python main.py hxxps[:]//example[.]com
 ```
-To run **Gatekey** on a list of urls, run:
+To run Gatekey on a list of urls, run:
 ```bash
-./auto_gatekey.sh urls.txt
+python main.py urls.txt
 ```
 
 

@@ -223,11 +223,11 @@ _BASE_PROFILES: List[Dict[str, Any]] = [
         "class": "phone",
         "mem": [4, 6, 8, 12],                         # GiB reported via JS API (rounded)
         "cores": [3, 4, 6, 8, 10, 12],                # logical
-        "screen": [                                   # CSS‑px @ 100 % zoom, DPR ≈ 3
-            (1179, 2556),   # iPhone 15 Pro
-            (1290, 2796),   # iPhone 15 Pro Max
-            (1080, 2340),   # Galaxy S24
-            (1152, 2436),   # Pixel 8
+        "screen": [                                   # CSS‑px @100% zoom, DPR = 3
+            (1179, 2556),   # iPhone 15 Pro
+            (1290, 2796),   # iPhone 15 Pro Max
+            (1080, 2340),   # Galaxy S24
+            (1152, 2436),   # Pixel 8
         ],
         "webgl": [                                    # modern mobile GPUs
             ("Qualcomm", "Adreno (TM) 740"),
