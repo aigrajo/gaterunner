@@ -2,7 +2,6 @@
 resources.py – save network responses and metadata
 """
 
-from __future__ import annotations
 
 import hashlib
 import json

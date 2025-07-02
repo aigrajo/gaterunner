@@ -70,7 +70,7 @@ def run_single_url(url, args):
             print("[WARN] UA string is missing ';;'. Falling back to default.")
         gates_enabled['UserAgentGate'] = True
         ua = choose_ua(args.ua)
-        gate_args['UserAgentGate'] = {'user_agent': ua}
+        gate_args['UserAgentGate'] = {'user_agent': ua, 'ua_arg': args.ua}
     else:
         gates_enabled['UserAgentGate'] = False
 
@@ -129,10 +129,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('input', help='A single URL or path to a file of URLs (obfuscated format OK)')
 
-    parser.add_argument('--country', default="US", help='Country code geolocation emulation')
+    parser.add_argument('--country', help='Country code geolocation emulation')
     parser.add_argument('--ref', help='Referrer header')
-    parser.add_argument('--ua', default="Windows;;Chrome", help='User-Agent header, default is "Windows;;Chrome')
-    parser.add_argument('--lang', default="en-US", help='Accept-Language header')
+    parser.add_argument('--ua', help='User-Agent header')
+    parser.add_argument('--lang', default="en-US", help='Accept-Language header, default is \'en-US\'')
     parser.add_argument('--proxy', help='send through SOCKS5/HTTP proxy')
     parser.add_argument('--engine', choices=["auto", "playwright", "camoufox"], default="auto", help="specifically for using playwright's firefox instead of defaulting to camoufox")
     parser.add_argument('--headful', action='store_true', help='Use non-headless browser mode')

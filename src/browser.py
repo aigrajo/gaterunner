@@ -6,7 +6,6 @@ Drives Playwright or CamouFox, captures every redirect hop,
 saves final downloads, and tallies stats: downloads / warnings / errors.
 """
 
-from __future__ import annotations
 import asyncio, os
 import hashlib
 from contextlib import suppress
@@ -229,7 +228,7 @@ async def save_page(
             gates_enabled=gates_enabled, gate_args=gate_args, headless=headless
         )
 
-    ua = gate_args.get("UserAgentGate", {}).get("user_agent", "")
+    ua = gate_args.get("UserAgentGate", {}).get("ua_arg", "")
     want_camoufox = engine == "camoufox"
     force_playwright = engine == "playwright"
     use_camoufox = _HAS_CAMOUFOX and not force_playwright and (

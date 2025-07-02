@@ -10,8 +10,6 @@ values are drawn only from that profile – keeping the overall fingerprint
 coherent while still varied.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import random
@@ -364,153 +362,141 @@ async def create_context(
     headless: bool = True,
     **extra_ctx_kwargs,
 ) -> Tuple[Browser, BrowserContext]:
-    """Launch a browser context whose surfaces align with the UA."""
-
+    """Launch a browser context whose surfaces align with the UA if spoofing is requested."""
     gate_args = gate_args or {}
-
-    ua: str = gate_args.get("UserAgentGate", {}).get("user_agent", _DEFAULT_UA)
+    spoof_ua = gate_args.get("UserAgentGate") is not None
+    ua = gate_args["UserAgentGate"]["user_agent"] if spoof_ua else ""
     locale, languages = _locale_from_gate(gate_args)
     tz_id = _timezone_from_gate(gate_args)
 
-    engine = _engine_from_ua(ua)
+    engine = _engine_from_ua(ua) if spoof_ua else "chromium"
     launcher = getattr(playwright, engine)
+    browser: Optional[Browser] = None
+    context: Optional[BrowserContext] = None
 
-    # ───── base profile selection ─────
-    base = _select_base_profile(ua)
+    try:
+        if spoof_ua:
+            base = _select_base_profile(ua)
+            rand_mem = random.choice(base["mem"])
+            rand_cores = random.choice(base["cores"])
+            screen_w, screen_h = random.choice(base["screen"])
+            webgl_vendor, webgl_renderer = (
+                random.choice(base["webgl"]) if base.get("webgl") else _pick_webgl_pair(ua)
+            )
 
-    rand_mem = random.choice(base["mem"])
-    rand_cores = random.choice(base["cores"])
-    screen_w, screen_h = random.choice(base["screen"])
+            if engine == "chromium":
+                entropy = extract_high_entropy_hints(ua)
+                brand, brand_v = parse_chromium_ua(ua)
+                chromium_v = parse_chromium_version(ua)
+                mobile_flag = "mobile" in ua.lower()
+            else:
+                entropy = {}
+                brand = brand_v = chromium_v = ""
+                mobile_flag = False
+        else:
+            screen_w, screen_h = 1280, 720  # Default fallback values
 
-    if base.get("webgl"):
-        webgl_vendor, webgl_renderer = random.choice(base["webgl"])
-    else:
-        webgl_vendor, webgl_renderer = _pick_webgl_pair(ua)
+        launch_args = {
+            "headless": headless,
+            "args": ["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
+        }
+        if proxy:
+            launch_args["proxy"] = proxy
 
-    # Chromium‑specific high‑entropy hints
-    if engine == "chromium":
-        entropy = extract_high_entropy_hints(ua)
-        brand, brand_v = parse_chromium_ua(ua)
-        chromium_v = parse_chromium_version(ua)
-        mobile_flag = "mobile" in ua.lower()
-    else:
-        entropy = {}
-        brand = brand_v = chromium_v = ""
-        mobile_flag = False
+        browser = await launcher.launch(**launch_args)
 
-    fp: Dict[str, Any] = {
-        "ua": ua,
-        "languages": languages,
-        "tz": tz_id,
-        "mem": rand_mem,
-        "cores": rand_cores,
-        "screen": (screen_w, screen_h),
-        "webgl_vendor": webgl_vendor,
-        "webgl_renderer": webgl_renderer,
-    }
-    if engine == "chromium":
-        fp.update(
-            brand=brand,
-            brand_v=brand_v,
-            ua_full_version=parse_chromium_full_version(ua) or chromium_v,
-            platform=entropy.get("platform", "Win32"),
-            platform_version=entropy.get("platformVersion", "15.0"),
-            arch=entropy.get("architecture", "x86"),
-            bitness=entropy.get("bitness", "64"),
-            wow64=entropy.get("wow64", False),
-            mobile=mobile_flag,
-        )
+        ctx_args = {
+            "viewport": {"width": screen_w, "height": screen_h},
+            "screen": {"width": screen_w, "height": screen_h},
+            "accept_downloads": accept_downloads,
+            **extra_ctx_kwargs,
+        }
 
-    # ───── launch browser ─────
-    launch_args: Dict[str, Any] = {
-        "headless": headless,
-        "args": ["--disable-blink-features=AutomationControlled"] if engine == "chromium" else [],
-    }
-    if proxy:
-        launch_args["proxy"] = proxy
+        if spoof_ua:
+            ctx_args.update({
+                "user_agent": ua,
+                "locale": locale,
+                "timezone_id": tz_id,
+            })
 
-    browser: Browser = await launcher.launch(**launch_args)
+        geo = gate_args.get("GeolocationGate", {}).get("geolocation")
+        if geo is not None:
+            ctx_args["geolocation"] = geo
 
-    ctx_args: Dict[str, Any] = {
-        "user_agent": fp["ua"],
-        "locale": locale,
-        "timezone_id": fp["tz"],
-        "viewport": {"width": screen_w, "height": screen_h},
-        "screen": {"width": screen_w, "height": screen_h},
-        "accept_downloads": accept_downloads,
-        **extra_ctx_kwargs,
-    }
-    geo = gate_args.get("GeolocationGate", {}).get("geolocation")
-    if geo is not None:
-        ctx_args["geolocation"] = geo
+        context = await browser.new_context(**ctx_args)
 
-    context: BrowserContext = await browser.new_context(**ctx_args)
+        if spoof_ua:
+            if engine == "chromium":
+                await _apply_stealth(context)
 
-    # ───── engine‑specific patches ─────
-    if engine == "chromium":
-        await _apply_stealth(context)
+                lang_js = json.dumps(list(languages))
+                touch_js = (
+                    "Object.defineProperty(window, 'ontouchstart', {value: null});"
+                    if mobile_flag
+                    else "if ('ontouchstart' in window) {} else Object.defineProperty(window, 'ontouchstart', {value: null});"
+                )
 
-        lang_js = json.dumps(list(fp["languages"]))
-        touch_js = (
-            "Object.defineProperty(window, 'ontouchstart', {value: null});"
-            if fp.get("mobile")
-            else "if ('ontouchstart' in window) {} else Object.defineProperty(window, 'ontouchstart', {value: null});"
-        )
+                js_script = _JS_TEMPLATE.format(
+                    chromium_v=chromium_v or "",
+                    brand=brand,
+                    brand_v=brand_v,
+                    architecture=entropy.get("architecture", "x86"),
+                    bitness=entropy.get("bitness", "64"),
+                    wow64=str(bool(entropy.get("wow64", False))).lower(),
+                    model=entropy.get("model", ""),
+                    mobile=str(mobile_flag).lower(),
+                    platform=entropy.get("platform", "Win32"),
+                    platformVersion=entropy.get("platformVersion", "15.0"),
+                    uaFullVersion=parse_chromium_full_version(ua) or chromium_v,
+                )
 
-        js_script = _JS_TEMPLATE.format(
-            chromium_v=chromium_v or "",
-            brand=fp.get("brand", ""),
-            brand_v=fp.get("brand_v", ""),
-            architecture=fp.get("arch", "x86"),
-            bitness=fp.get("bitness", "64"),
-            wow64=str(bool(fp.get("wow64", False))).lower(),
-            model=entropy.get("model", ""),
-            mobile=str(fp.get("mobile", False)).lower(),
-            platform=fp.get("platform", "Win32"),
-            platformVersion=fp.get("platform_version", "15.0"),
-            uaFullVersion=fp.get("ua_full_version", chromium_v),
-        )
+                chromium_patch = (
+                    _CHROMIUM_STEALTH_TEMPLATE
+                    .replace("__LANG_JS__", lang_js)
+                    .replace("__TOUCH_JS__", touch_js)
+                    .replace("__BRAND__", brand)
+                    .replace("__BRAND_V__", brand_v)
+                    .replace("__PLATFORM__", entropy.get("platform", "Win32"))
+                    .replace("__MOBILE__", str(mobile_flag).lower())
+                    .replace("__ARCH__", entropy.get("architecture", "x86"))
+                    .replace("__BITNESS__", entropy.get("bitness", "64"))
+                    .replace("__MODEL__", entropy.get("model", ""))
+                    .replace("__PLATFORM_VERSION__", entropy.get("platformVersion", "15.0"))
+                    .replace("__UA_FULL_VERSION__", parse_chromium_full_version(ua) or chromium_v)
+                    .replace("__WOW64__", str(bool(entropy.get("wow64", False))).lower())
+                    .replace("__WEBGL_VENDOR__", webgl_vendor)
+                    .replace("__WEBGL_RENDERER__", webgl_renderer)
+                    .replace("__USER_AGENT__", ua)
+                    .replace("__RAND_MEM__", str(rand_mem))
+                    .replace("__TZ__", tz_id)
+                )
 
-        chromium_patch = (
-            _CHROMIUM_STEALTH_TEMPLATE
-            .replace("__LANG_JS__", lang_js)
-            .replace("__TOUCH_JS__", touch_js)
-            .replace("__BRAND__", fp.get("brand", ""))
-            .replace("__BRAND_V__", fp.get("brand_v", ""))
-            .replace("__PLATFORM__", fp.get("platform", "Win32"))
-            .replace("__MOBILE__", str(fp.get("mobile", False)).lower())
-            .replace("__ARCH__", fp.get("arch", "x86"))
-            .replace("__BITNESS__", fp.get("bitness", "64"))
-            .replace("__MODEL__", entropy.get("model", ""))
-            .replace("__PLATFORM_VERSION__", fp.get("platform_version", "15.0"))
-            .replace("__UA_FULL_VERSION__", fp.get("ua_full_version", chromium_v))
-            .replace("__WOW64__", str(bool(fp.get("wow64", False))).lower())
-            .replace("__WEBGL_VENDOR__", webgl_vendor)
-            .replace("__WEBGL_RENDERER__", webgl_renderer)
-            .replace("__USER_AGENT__", ua)
-            .replace("__RAND_MEM__", str(rand_mem))
-            .replace("__TZ__", tz_id)
-        )
+                webgl_patch = (
+                    _WEBGL_PATCH_TEMPLATE
+                    .replace("__WEBGL_VENDOR__", webgl_vendor)
+                    .replace("__WEBGL_RENDERER__", webgl_renderer)
+                )
 
-        webgl_patch = (
-            _WEBGL_PATCH_TEMPLATE
-            .replace("__WEBGL_VENDOR__", webgl_vendor)
-            .replace("__WEBGL_RENDERER__", webgl_renderer)
-        )
+                await context.add_init_script(js_script)
+                await context.add_init_script(chromium_patch)
+                await context.add_init_script(_EXTRA_STEALTH)
+                await context.add_init_script(webgl_patch)
 
-        await context.add_init_script(js_script)
-        await context.add_init_script(chromium_patch)
-        await context.add_init_script(_EXTRA_STEALTH)
-        await context.add_init_script(webgl_patch)
-    else:
-        js_script = _fwk_js_patch(languages, fp["tz"], ua)
-        await context.add_init_script(js_script)
-        await context.add_init_script(_EXTRA_STEALTH)
+            else:
+                js_script = _fwk_js_patch(languages, tz_id, ua)
+                await context.add_init_script(js_script)
+                await context.add_init_script(_EXTRA_STEALTH)
 
-    for body in _EXTRA_JS_SNIPPETS.values():
-        await context.add_init_script(body)
+            for body in _EXTRA_JS_SNIPPETS.values():
+                await context.add_init_script(body)
 
-    return browser, context
+        return browser, context
+
+    except Exception as e:
+        if browser:
+            await browser.close()
+        raise e
+
 
 
 # ──────────────────────────────────────────────────────────
