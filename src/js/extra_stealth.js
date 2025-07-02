@@ -98,87 +98,96 @@
     navigator.mediaDevices.__patched = true;
   }
 
-/* ---------- plugin & mimeType tidy-up (five default viewers) ---------- */
-/* ---------- final plugin & mimeType patch (native object, 5 plugins) -- */
 (() => {
-  const navProto   = Navigator.prototype;
-  const nativePlug = navigator.plugins;
-  const nativeMime = navigator.mimeTypes;
+  const script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.textContent = `
+    (function () {
+      const pluginNames = [
+        "PDF Viewer",
+        "Chrome PDF Viewer",
+        "Chromium PDF Viewer",
+        "Microsoft Edge PDF Viewer",
+        "WebKit built-in PDF"
+      ];
 
-  /* bail if already patched or not present */
-  if (!nativePlug || nativePlug.__patched) return;
+      const createPlugin = (name) => {
+        const plugin = {
+          name,
+          description: "Portable Document Format",
+          filename: "internal-pdf-viewer",
+          0: {
+            type: "application/pdf",
+            suffixes: "pdf",
+            description: "Portable Document Format",
+            enabledPlugin: null
+          },
+          1: {
+            type: "text/pdf",
+            suffixes: "pdf",
+            description: "Portable Document Format",
+            enabledPlugin: null
+          },
+          length: 2,
+          item(index) {
+            return this[index];
+          },
+          namedItem(name) {
+            return /pdf/i.test(name) ? this[0] : null;
+          }
+        };
+        plugin[0].enabledPlugin = plugin;
+        plugin[1].enabledPlugin = plugin;
+        return plugin;
+      };
 
-  /* wipe existing entries ---------------------------------------------------- */
-  const clearALike = obj => {
-    const n = obj.length >>> 0;
-    for (let i = 0; i < n; i++) delete obj[i];
-  };
-  clearALike(nativePlug);
-  clearALike(nativeMime);
+      const fakePlugins = pluginNames.map(createPlugin);
 
-  /* helpers ------------------------------------------------------------------ */
-  function makeMime(type, plugin) {
-    return Object.freeze({
-      type, suffixes: 'pdf',
-      description: 'Portable Document Format',
-      enabledPlugin: plugin
-    });
-  }
-  function makePlugin(name) {
-    /* create a blank object whose [[Prototype]] is the native PDF plugin’s proto
-       so all internal slots stay valid and instanceof checks pass            */
-    const plugin = Object.create(Object.getPrototypeOf(nativePlug[0] || {}));
+      const pluginArray = [...fakePlugins];
+      pluginArray.item = (index) => pluginArray[index];
+      pluginArray.namedItem = (name) =>
+        pluginArray.find((p) => p.name === name) || null;
+      pluginArray.length = fakePlugins.length;
+      Object.setPrototypeOf(pluginArray, PluginArray.prototype);
 
-    Object.assign(plugin, {
-      name,
-      filename:    'internal-pdf-viewer',
-      description: 'Portable Document Format'
-    });
+      Object.defineProperty(navigator, "plugins", {
+        get: () => pluginArray,
+        configurable: true
+      });
 
-    /* two MIME types -------------------------------------------------------- */
-    const m0 = makeMime('application/pdf', plugin);
-    const m1 = makeMime('text/pdf',        plugin);
-    plugin[0] = m0;
-    plugin[1] = m1;
+      const allMimeTypes = [];
+      for (const plugin of fakePlugins) {
+        for (let i = 0; i < plugin.length; i++) {
+          allMimeTypes.push(plugin[i]);
+        }
+      }
 
-    /* expose length as **2** with an accessor to override the old 8 ---------- */
-    Object.defineProperty(plugin, 'length', { get: () => 2 });
-    plugin.item      = i => (i === 0 ? m0 : i === 1 ? m1 : null);
-    plugin.namedItem = t => /pdf/i.test(t) ? m0 : null;
+      const mimeTypeArray = [...allMimeTypes];
+      mimeTypeArray.item = (i) => mimeTypeArray[i] || null;
+      mimeTypeArray.namedItem = (type) =>
+        mimeTypeArray.find((m) => m.type === type) || null;
+      mimeTypeArray.length = mimeTypeArray.length;
+      Object.setPrototypeOf(mimeTypeArray, MimeTypeArray.prototype);
 
-    return { plugin, mimes: [m0, m1] };
-  }
+      Object.defineProperty(navigator, "mimeTypes", {
+        get: () => mimeTypeArray,
+        configurable: true
+      });
 
-  const names = [
-    'PDF Viewer',
-    'Chrome PDF Viewer',
-    'Chromium PDF Viewer',
-    'Microsoft Edge PDF Viewer',
-    'WebKit built-in PDF'
-  ];
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+        configurable: true
+      });
 
-  const built   = names.map(makePlugin);
-  const plugins = built.map(b => b.plugin);
-  const mimes   = built.flatMap(b => b.mimes);
-
-  /* repopulate native PluginArray ------------------------------------------- */
-  plugins.forEach((p, i) => { nativePlug[i] = p; });
-  Object.defineProperty(nativePlug, 'length', { get: () => plugins.length });
-  nativePlug.item      = i => nativePlug[i] || null;
-  nativePlug.namedItem = n => plugins.find(p => p.name === n) || null;
-  nativePlug.refresh   = () => {};
-  /* ensure toString & prototype checks pass */
-  nativePlug.toString = () => '[object PluginArray]';
-
-  /* repopulate native MimeTypeArray ----------------------------------------- */
-  mimes.forEach((m, i) => { nativeMime[i] = m; });
-  Object.defineProperty(nativeMime, 'length', { get: () => mimes.length });
-  nativeMime.item      = i => nativeMime[i] || null;
-  nativeMime.namedItem = t => mimes.find(m => m.type === t) || null;
-
-  /* flag so we don’t patch twice */
-  Object.defineProperty(nativePlug, '__patched', { value: true });
+      Object.defineProperty(window, 'chrome', {
+        value: { runtime: {} },
+        configurable: true
+      });
+    })();
+  `;
+  document.documentElement.appendChild(script);
 })();
+
 
 
   /* privacy flags */
@@ -210,6 +219,7 @@
       { value: undefined, configurable: false });
   }
 })();
+
 
 (() => {
   const fp = window.__fp;
@@ -288,5 +298,7 @@
     'canLoadAdAuctionFencedFrame', 'createAuctionNonce'
   ].forEach(key => delete Navigator.prototype[key]);
 })();
+
+
 
 
