@@ -39,6 +39,13 @@ _BINARY_MIME_SNIPPETS: tuple[str, ...] = (
 # ───────────────────────── helpers ──────────────────────────
 
 def _guess_ext(ct: str) -> str:
+    """Infer file extension based on Content-Type header.
+
+    @param ct (str): MIME type string (e.g. 'text/html', 'image/png').
+
+    @return (str): File extension with leading dot (e.g. '.html'). Empty string if unknown.
+    """
+
     ct_low = ct.lower()
     if "text/css" in ct_low:
         return ".css"
@@ -60,7 +67,15 @@ def _guess_ext(ct: str) -> str:
 
 
 def _safe_filename(stem: str, ext: str, salt: str) -> str:
-    """Return *stem* + '_' + 8‑hex‑md5 + *ext*, trimming *stem* when needed."""
+    """Return *stem* + '_' + 8‑hex‑md5 + *ext*, trimming *stem* if needed.
+
+    @param stem (str): Base filename without extension.
+    @param ext (str): File extension, including leading dot.
+    @param salt (str): Salt value used to generate deterministic MD5 suffix.
+
+    @return (str): Sanitized filename safe for saving to disk.
+    """
+
     salt = hashlib.md5(salt.encode()).hexdigest()[:8]
     # room for underscore between stem and salt
     budget = _MAX_FILENAME_LEN - len(ext) - len(salt) - 1
@@ -73,6 +88,13 @@ def _safe_filename(stem: str, ext: str, salt: str) -> str:
 
 
 def _fname_from_cd(cd: str | None) -> str | None:
+    """Extract filename from Content-Disposition header.
+
+    @param cd (str | None): The Content-Disposition header value.
+
+    @return (str | None): Filename if extractable. None if not present or invalid.
+    """
+
     if not cd:
         return None
     m = _FILENAME_RE.search(cd)
@@ -84,6 +106,14 @@ def _fname_from_cd(cd: str | None) -> str | None:
 
 
 def _fname_from_url(url: str, fallback_ext: str) -> str:
+    """Generate filename from URL path, using fallback extension if needed.
+
+    @param url (str): The full URL of the resource.
+    @param fallback_ext (str): Extension to use if URL has no extension.
+
+    @return (str): Sanitized filename derived from URL.
+    """
+
     path = urlparse(url).path
     stem, ext = os.path.splitext(os.path.basename(path) or "index")
     if not ext and fallback_ext:
@@ -92,6 +122,14 @@ def _fname_from_url(url: str, fallback_ext: str) -> str:
 
 
 def _looks_like_download(ct: str, cd: str | None) -> bool:
+    """Check if response looks like a file download.
+
+    @param ct (str): Content-Type header.
+    @param cd (str | None): Content-Disposition header.
+
+    @return (bool): True if it's likely a file download. False otherwise.
+    """
+
     if cd and "attachment" in cd.lower():
         return True
     ct_low = ct.lower()
@@ -100,6 +138,14 @@ def _looks_like_download(ct: str, cd: str | None) -> bool:
 # ───────────────────────── hooks ──────────────────────────
 
 async def handle_request(request, res_urls: set[str]):
+    """Track network requests for static resources.
+
+    @param request (playwright.Request): The intercepted network request object.
+    @param res_urls (set[str]): A set to collect the URLs of requested resources.
+
+    @return None
+    """
+
     if request.resource_type in {
         "document", "stylesheet", "script", "image", "font", "media", "other",
     }:
@@ -114,6 +160,17 @@ async def handle_response(
     resp_hdrs: dict[str, dict],
     stats: dict,
 ):
+    """Save qualifying network responses to disk and update metadata.
+
+    @param response (playwright.Response): The intercepted network response.
+    @param out_dir (str): Path to the output directory for saved resources.
+    @param url_map (dict[str, str]): Maps each URL to its saved relative file path.
+    @param resp_hdrs (dict[str, dict]): Stores response status and headers by URL.
+    @param stats (dict): Collects counters like "downloads", "errors", "warnings".
+
+    @return None
+    """
+
     req_type = response.request.resource_type
     if req_type not in {
         "document", "stylesheet", "script", "image", "font", "media", "other",
@@ -171,11 +228,27 @@ async def handle_response(
 # ───────────────────────── misc helpers ──────────────────────────
 
 def save_json(path: str, data):
+    """Write Python object as JSON to disk.
+
+    @param path (str): Destination path for the JSON file.
+    @param data (any): Python object to serialize (must be JSON serializable).
+
+    @return None
+    """
+
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
 
 
 async def save_screenshot(page, out_dir: str):
+    """Capture and save a full-page screenshot.
+
+    @param page (playwright.Page): The browser page object to screenshot.
+    @param out_dir (str): Directory where the screenshot will be saved.
+
+    @return None
+    """
+
     try:
         await page.screenshot(path=f"{out_dir}/screenshot.png", full_page=True)
     except Exception:
