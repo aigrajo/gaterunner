@@ -1,6 +1,6 @@
-# Gatekey
+# GateRunner
 
-**Gatekey** is an automated web saving tool that captures complete webpages using Playwright. Designed specifically to bypass malicious TDS gating to follow attack chains and capture its resources in the process.
+**GateRunner** is an automated web saving tool that captures complete webpages using Playwright. Designed specifically to bypass malicious TDS gating to follow attack chains and capture its resources in the process.
 
 ## Setup
 
@@ -14,7 +14,7 @@ playwright install
 
 ## Usage
 
-Gatekey allows obfuscated URLs. Running this command will save data to `./data/saved_example.com`
+GateRunner allows obfuscated URLs. Running this command will save data to `./data/saved_example.com`
 ```bash
 python main.py hxxps[:]//example[.]com
 ```
