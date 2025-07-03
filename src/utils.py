@@ -7,12 +7,22 @@ Helper functions
 import csv
 import json
 import random
+from typing import Union
+
 from shapely import wkt
 from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry.base import BaseGeometry
 from pyproj import Geod
 
-# Write geo data to dictionary
-COUNTRY_GEO = {}
+# ───────────────────────── types ──────────────────────────
+
+CountryGeo = dict[str, Union[float, int, BaseGeometry]]
+UserAgentEntry = dict[str, str]
+
+# ───────────────────────── data ──────────────────────────
+
+COUNTRY_GEO: dict[str, CountryGeo] = {}
+
 with open('src/data/country_geo.csv', newline='') as csvfile:
     reader = csv.reader(csvfile)
     next(reader)
@@ -24,9 +34,19 @@ with open('src/data/country_geo.csv', newline='') as csvfile:
             'polygon_wkt': wkt.loads(row[4]),
         }
 
-geod = Geod(ellps="WGS84")
+geod: Geod = Geod(ellps="WGS84")
 
-def random_point_polygon(polygon, max_tries=100):
+# ───────────────────────── functions ──────────────────────────
+
+def random_point_polygon(polygon: Polygon, max_tries: int = 100) -> Point:
+    """Return a random point contained within a polygon.
+
+    @param polygon (shapely.Polygon): The polygon to sample within.
+    @param max_tries (int): Number of attempts before giving up.
+
+    @return (shapely.geometry.Point): A random point inside the polygon.
+    @raise RuntimeError: If no valid point found after max_tries.
+    """
     minx, miny, maxx, maxy = polygon.bounds
     for _ in range(max_tries):
         x, y = random.uniform(minx, maxx), random.uniform(miny, maxy)
@@ -35,8 +55,16 @@ def random_point_polygon(polygon, max_tries=100):
             return p
     raise RuntimeError('Could not find a random point in the polygon')
 
-def random_point_multipolygon(multipolygon, max_tries=100):
-    # Choose a polygon at random, weighted by area
+
+def random_point_multipolygon(multipolygon: MultiPolygon, max_tries: int = 100) -> Point:
+    """Return a random point from a multipolygon, weighted by area.
+
+    @param multipolygon (shapely.MultiPolygon): The multipolygon to sample from.
+    @param max_tries (int): Total attempts across all polygons.
+
+    @return (shapely.geometry.Point): A random point within one of the sub-polygons.
+    @raise RuntimeError: If no valid point found after max_tries.
+    """
     polygons = list(multipolygon.geoms)
     areas = [poly.area for poly in polygons]
     total_area = sum(areas)
@@ -49,7 +77,15 @@ def random_point_multipolygon(multipolygon, max_tries=100):
             continue
     raise RuntimeError('Could not find a random point in the multipolygon')
 
-def jitter_country_location(cc):
+
+def jitter_country_location(cc: str) -> dict[str, float]:
+    """Return a random geolocation within the polygon of a given country.
+
+    @param cc (str): Country code used to look up polygon data.
+
+    @return (dict): A dictionary with random 'latitude', 'longitude', and 'accuracy'.
+    @raise ValueError: If the geometry is not Polygon or MultiPolygon.
+    """
     geom = COUNTRY_GEO[cc].get('polygon_wkt')
     if isinstance(geom, Polygon):
         point = random_point_polygon(geom)
@@ -66,11 +102,16 @@ def jitter_country_location(cc):
     return geo
 
 
-# Randomly select User-Agent string based off of category
-def choose_ua(key):
+def choose_ua(key: str) -> str:
+    """Randomly choose a User-Agent string from a JSON file category.
 
+    @param key (str): Category key (e.g. 'desktop', 'mobile') from user-agents.json.
+
+    @return (str): A random User-Agent string.
+    @raise ValueError: If the category key is missing or empty.
+    """
     with open('src/data/user-agents.json', newline='') as jsonfile:
-        ua_data = json.load(jsonfile)
+        ua_data: dict[str, list[UserAgentEntry]] = json.load(jsonfile)
 
     if key not in ua_data or not ua_data[key]:
         raise ValueError(f"No agents found in category: {key}")
@@ -79,8 +120,18 @@ def choose_ua(key):
     return ua_obj["userAgent"]
 
 
-# For organized file saving
-RESOURCE_DIRS = {
+def main() -> None:
+    """Test function to print jittered geolocation for US.
+
+    @return None
+    """
+    geotest = jitter_country_location('US')
+    print(geotest)
+
+
+# ───────────────────────── constants ──────────────────────────
+
+RESOURCE_DIRS: dict[str, str] = {
     'image': 'images',
     'script': 'scripts',
     'stylesheet': 'stylesheets',
@@ -89,8 +140,7 @@ RESOURCE_DIRS = {
     'document': 'html',
 }
 
-# For html rewriting
-tag_attr_map = {
+tag_attr_map: dict[str, list[str]] = {
     'img': ['src', 'srcset'],
     'script': ['src'],
     'link': ['href'],
@@ -101,12 +151,6 @@ tag_attr_map = {
     'embed': ['src'],
     'object': ['data'],
 }
-
-
-# Debug (Change path to country_geo.csv)
-def main():
-    geotest = jitter_country_location('US')
-    print(geotest)
 
 if __name__ == '__main__':
     main()
