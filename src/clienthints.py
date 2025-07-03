@@ -352,5 +352,38 @@ def send_ch(ua):
     # Not a recognized Chromium-based UA or version too old
     return False
 
+def generate_sec_ch_ua_full_version_list(ua):
+    """
+    Generate a `Sec-CH-UA-Full-Version-List` client hint string from a Chromium-based user-agent.
+
+    @param ua (str): Full user-agent string.
+
+    @return (str): Formatted `Sec-CH-UA-Full-Version-List` string like:
+      '"Chromium";v="114.0.5735.198", "Not-A.Brand";v="99.0.0.0", "Google Chrome";v="114.0.5735.198"'
+    """
+    brand, brand_version = parse_chromium_ua(ua)
+    chromium_version = parse_chromium_full_version(ua)
+
+    if not brand or not brand_version or not chromium_version:
+        raise ValueError("Not a recognized Chromium-based UA string")
+
+    brands = [
+        ("Chromium", chromium_version),
+        ("Not-A.Brand", "99.0.0.0"),
+        (brand, chromium_version),
+    ]
+
+    # Remove duplicates
+    unique = []
+    seen = set()
+    for b, v in brands:
+        if b not in seen:
+            unique.append((b, v))
+            seen.add(b)
+
+    result = ", ".join(f'"{b}";v="{v}"' for b, v in unique)
+
+    return result
+
 
 

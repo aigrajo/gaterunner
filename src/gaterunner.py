@@ -1,8 +1,4 @@
-"""
-gaterunner.py
-
-Responsible for enabling gate bypassing techniques. Mainly spoofs http headers
-"""
+# gaterunner.py
 
 from src.clienthints import send_ch
 from .gates import ALL_GATES
@@ -37,31 +33,31 @@ async def run_gates(page, context, gates_enabled=None, gate_args=None, url=None,
             gate_headers = await gate.get_headers(**args, url=url)
             headers.update(gate_headers)
 
+    # Prepare header injectors from gates that define inject_headers()
+    injectors = [
+        gate for gate in ALL_GATES
+        if gates_enabled.get(gate.name, True) and hasattr(gate, "inject_headers")
+    ]
+
     # Define route handler to intercept requests and inject spoofed headers.
     async def route_handler(route, request):
         merged_headers = request.headers.copy()
         merged_headers.update(headers)
 
-        # Optionally strip client hints if not needed for the UserAgentGate.
-        filtered_headers = merged_headers.copy()
-        if gates_enabled.get("UserAgentGate", True):
-            # send_ch expects a user-agent string, passed as gate_args["UserAgentGate"]
-            client_hints = send_ch(str(gate_args.get("UserAgentGate")))
-            if not client_hints:
-                filtered_headers = {
-                    k: v for k, v in merged_headers.items()
-                    if not k.lower().startswith("sec-ch-ua")
-                }
+        for gate in injectors:
+            try:
+                gate_headers = gate.inject_headers(request)
+                if gate_headers:
+                    merged_headers.update(gate_headers)
+            except Exception as e:
+                print(f"[WARN] {gate.name}.inject_headers failed: {e}")
 
-        #Collect request metadata by URL.
         if resource_request_headers is not None:
             resource_request_headers[request.url] = {
                 "method": request.method,
             }
-            resource_request_headers[request.url].update(dict(filtered_headers))
+            resource_request_headers[request.url].update(dict(merged_headers))
 
-        # Proceed with the request using modified headers.
-        await route.continue_(headers=filtered_headers)
+        await route.continue_(headers=merged_headers)
 
-    # Apply header modification logic to all outgoing resource requests.
     await context.route("**/*", route_handler)
