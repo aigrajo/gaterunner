@@ -1,51 +1,119 @@
-/* webgl_patch.js  –  uses same “clone‐and-swap” formula as spoof_useragent */
-(() => {
-  const VENDOR   = '__WEBGL_VENDOR__';
-  const RENDERER = '__WEBGL_RENDERER__';
+/**
+ * webgl_patch.js – spoof GPU strings and pixel‑hash output
+ */
 
-  /** clone helper: keep every observable flag from the native method */
-  const replace = (Ctx, key, wrapper) => {
-    const orig = Ctx.prototype[key];
-    if (typeof orig !== 'function') return;                  // nothing to do
-    const desc = Object.getOwnPropertyDescriptor(Ctx.prototype, key);
+(function () {
+  const vendor   = "__WEBGL_VENDOR__";
+  const renderer = "__WEBGL_RENDERER__";
+  const DBG_EXT  = "WEBGL_debug_renderer_info";
 
-    /* 1. make wrapper NON-constructible & prototype-less */
-    const f = wrapper.bind(null);          // bound ⇒ inherits “non-constructor”
-    try { delete f.prototype; } catch {}   // built-ins expose no own prototype
+  // ───────────────────────────────────────────────────────── helpers ──
 
-    /* 2. mirror visible props */
-    Object.setPrototypeOf(f, orig);        // clone [[Prototype]] chain
-    Object.defineProperty(f, 'name',   { value: key });
-    Object.defineProperty(f, 'length', { value: orig.length });
-    Object.defineProperty(f, 'toString', {
-      value: () => String(orig)            // native source string
+  function mirrorDescriptor(src, tgt) {
+    Object.defineProperty(tgt, "name",   { value: src.name });
+    Object.defineProperty(tgt, "length", { value: src.length });
+    Object.defineProperty(tgt, "toString", {
+      value: Function.prototype.toString.bind(src),
+      writable: false,
+      enumerable: false,
+      configurable: true
     });
+  }
 
-    /* 3. swap on the prototype keeping descriptor flags identical */
-    Object.defineProperty(Ctx.prototype, key, { ...desc, value: f });
-  };
+  // Simple Fowler–Noll–Vo hash (FNV‑1a 32‑bit) → 0‑255 byte
+  function hashByte(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = (h * 0x01000193) >>> 0;
+    }
+    return h & 0xff;
+  }
 
-  const patch = (Ctx) => {
-    if (!Ctx) return;
+  // Overwrite small pixel buffers in‑place (≤32 px)
+  function scrubPixels(pixels, w, h) {
+    if (!pixels || pixels.length === 0) return;
+    if (w * h > 32) return;                 // real renders stay untouched
 
-    /* --- getParameter ------------------------------------------------ */
-    replace(Ctx, 'getParameter', function (param) {
-      if (param === 37445) return VENDOR;
-      if (param === 37446) return RENDERER;
-      /* same error paths / this-binding as native */
-      return arguments.callee.__proto__.apply(this, arguments);
-    });
+    const seed = hashByte(vendor + renderer);
+    for (let i = 0; i < pixels.length; i++) {
+      pixels[i] = (seed + i) & 0xff;        // deterministic pattern
+    }
+  }
 
-    /* --- getExtension ------------------------------------------------- */
-    replace(Ctx, 'getExtension', function (name) {
-      if (name === 'WEBGL_debug_renderer_info') {
-        return { UNMASKED_VENDOR_WEBGL: 37445,
-                 UNMASKED_RENDERER_WEBGL: 37446 };
+  // ─────────────────────────────────── per‑context instrumentation ──
+
+  function patchInstance(ctx, originalGetParameter, originalReadPixels) {
+    // 1) getParameter spoof (already arrow ⇒ no prototype)
+    if (!ctx.getParameter.__isPatched) {
+      const spoof = (param) => {
+        try {
+          const ext = ctx.getExtension && ctx.getExtension(DBG_EXT);
+          if (ext) {
+            if (param === ext.UNMASKED_VENDOR_WEBGL)   return vendor;
+            if (param === ext.UNMASKED_RENDERER_WEBGL) return renderer;
+          }
+        } catch (_) {/*ignored*/}
+        return originalGetParameter.call(ctx, param);
+      };
+      mirrorDescriptor(originalGetParameter, spoof);
+      Object.defineProperty(spoof, "__isPatched", { value: true });
+      Object.defineProperty(ctx, "getParameter", {
+        value: spoof,
+        configurable: true,
+        enumerable: false,
+        writable: true
+      });
+    }
+
+    // 2) readPixels hash scrub
+    if (!ctx.readPixels.__isPatched) {
+      const scrubber = (x, y, w, h, format, type, pixels) => {
+        const res = originalReadPixels.call(ctx, x, y, w, h, format, type, pixels);
+        try { scrubPixels(pixels, w, h); } catch (_) {}
+        return res;
+      };
+      mirrorDescriptor(originalReadPixels, scrubber);
+      Object.defineProperty(scrubber, "__isPatched", { value: true });
+      Object.defineProperty(ctx, "readPixels", {
+        value: scrubber,
+        configurable: true,
+        enumerable: false,
+        writable: true
+      });
+    }
+  }
+
+  // ───────────────────────────── prototype hook to capture contexts ──
+
+  function instrument(Context) {
+    if (!Context || !Context.prototype) return;
+
+    const getExt  = Context.prototype.getExtension;
+    const getParm = Context.prototype.getParameter;
+    const rdPix   = Context.prototype.readPixels;
+
+    if (!getExt || getExt.__isPatched) return;
+
+    function getExtensionWrapper(name) {
+      const ext = getExt.apply(this, arguments);
+      if (name === DBG_EXT && ext) {
+        patchInstance(this, getParm, rdPix);
       }
-      return arguments.callee.__proto__.apply(this, arguments);
-    });
-  };
+      return ext;
+    }
 
-  patch(self.WebGLRenderingContext);
-  patch(self.WebGL2RenderingContext);
+    mirrorDescriptor(getExt, getExtensionWrapper);
+    Object.defineProperty(getExtensionWrapper, "__isPatched", { value: true });
+
+    Object.defineProperty(Context.prototype, "getExtension", {
+      value: getExtensionWrapper,
+      configurable: true,
+      enumerable: false,
+      writable: true
+    });
+  }
+
+  instrument(window.WebGLRenderingContext);
+  instrument(window.WebGL2RenderingContext);
 })();
