@@ -1060,4 +1060,5 @@ if (navigator.userAgentData) {
       };
     }
   } catch (_err) {}
-})(); 
+})();
+

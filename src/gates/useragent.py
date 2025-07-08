@@ -17,6 +17,7 @@ class UserAgentGate(GateBase):
         headers = {}
         if user_agent:
             headers['user-agent'] = user_agent
+            print(f"[GATE] Spoofed user agent: {user_agent}")
             if send_ch(user_agent):
                 headers['sec-ch-ua'] = generate_sec_ch_ua(user_agent)
                 headers['sec-ch-ua-mobile'] = "?0"  # or dynamically detect

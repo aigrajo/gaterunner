@@ -18,7 +18,7 @@ GateRunner allows obfuscated URLs. Running this command will save data to `./dat
 ```bash
 python main.py hxxps[:]//example[.]com
 ```
-To run Gatekey on a list of urls, run:
+To run GateRunner on a list of urls, run:
 ```bash
 python main.py urls.txt
 ```

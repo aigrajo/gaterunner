@@ -1,6 +1,16 @@
 (() => {
-  if ('connection' in navigator) Object.defineProperty(navigator, 'connection', {
-    get: () => ({ type: 'wifi', effectiveType: '4g', downlink: 10, rtt: 50,
-                  saveData: false, addEventListener(){}, removeEventListener(){} })
-  });
+  if (!('connection' in navigator)) {
+    Object.defineProperty(navigator, 'connection', {
+      get: () => ({
+        type: '__CONN_TYPE__',          // wifi, cellular, etc.
+        effectiveType: '__EFFECTIVE_TYPE__',  // 4g, 3g, 5g
+        downlink: __DOWNLINK__,         // float Mbps
+        rtt: __RTT__,                   // ms
+        saveData: __SAVE_DATA__,        // boolean
+        addEventListener() {},
+        removeEventListener() {}
+      }),
+      configurable: true
+    });
+  }
 })();

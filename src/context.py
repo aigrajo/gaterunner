@@ -425,6 +425,29 @@ async def create_context(
 
         context = await browser.new_context(**ctx_args)
 
+        # Add this mapping right after base = _select_base_profile(ua)
+        conn_profile_map = {
+            "desk_low": ("wifi", "3g", 5, 150, "false"),
+            "desk_mid": ("wifi", "4g", 20, 80, "false"),
+            "desk_high": ("ethernet", "4g", 50, 30, "false"),
+            "mac_notch": ("wifi", "4g", 25, 60, "false"),
+            "chrome_book": ("wifi", "3g", 10, 120, "false"),
+            "mobile_high": ("cellular", "5g", 20, 100, "true"),
+        }
+
+        conn_type, eff_type, downlink, rtt, save_data = conn_profile_map.get(base["id"],
+                                                                             ("wifi", "4g", 10, 100, "false"))
+        net_info_patch = _EXTRA_JS_SNIPPETS["network_info_stub.js"]
+        net_info_patch = (
+            net_info_patch
+            .replace("__CONN_TYPE__", f'"{conn_type}"')
+            .replace("__EFFECTIVE_TYPE__", f'"{eff_type}"')
+            .replace("__DOWNLINK__", str(downlink))
+            .replace("__RTT__", str(rtt))
+            .replace("__SAVE_DATA__", save_data)
+        )
+        await context.add_init_script(net_info_patch)
+
         if spoof_ua:
             if engine == "chromium":
                 await _apply_stealth(context)
