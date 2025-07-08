@@ -2,24 +2,31 @@
 browser.py
 ==========
 
-Drives Playwright or CamouFox, captures every redirect hop,
-saves final downloads, and tallies stats: downloads / warnings / errors.
+Drives Playwright, CamouFox or Patchright, captures every redirect hop,
+saves artefacts, and tallies stats: downloads / warnings / errors.
 """
 
-import asyncio, os
-import hashlib
+import asyncio, os, hashlib
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlparse
 
 from playwright._impl._errors import TargetClosedError
-from playwright.async_api import async_playwright, Error
+from playwright.async_api import async_playwright as async_pw, Error
 
+# ────────────── optional engines ──────────────
 try:
-    from camoufox.async_api import AsyncCamoufox       # type: ignore
+    from camoufox.async_api import AsyncCamoufox          # type: ignore
     _HAS_CAMOUFOX = True
 except ImportError:
     _HAS_CAMOUFOX = False
+
+try:
+    from patchright.async_api import async_playwright as async_patchright  # type: ignore
+    _HAS_PATCHRIGHT = True
+except ImportError:
+    _HAS_PATCHRIGHT = False
+    async_patchright = None  # type: ignore
 
 from .context import create_context
 from .gaterunner import run_gates
@@ -32,35 +39,20 @@ from .resources import (
 )
 
 # ───────────────────────── download helper ──────────────────────────
-
 async def _save_download(dl, out_dir: str, stats: dict):
-    """
-    Save a download object to the specified output directory.
-
-    @param dl: The download object with a `.save_as` coroutine method and `.url` and `.suggested_filename` attributes.
-
-    @param out_dir (str): The base directory path where the download should be saved.
-
-    @param stats (dict): A dictionary tracking statistics. Increments 'downloads' or 'errors' keys based on outcome.
-
-    @return: None. Updates the file system and modifies `stats` in place.
-    """
     name = dl.suggested_filename or _fname_from_url(dl.url, "")
     dst = Path(out_dir) / "downloads" / name
     dst.parent.mkdir(parents=True, exist_ok=True)
-
     try:
         await dl.save_as(dst)
         stats["downloads"] += 1
         print(f"[DOWNLOAD] Saved: {dst.name}")
     except Exception as e:
         stats["errors"] += 1
-        print(f"[WARN] Failed to save download {name}: {type(e).__name__}: {e}")
-
+        print(f"[WARN] Failed to save {name}: {type(e).__name__}: {e}")
 
 # ───────────────────────── page grabber ─────────────────────────────
-
-async def _grab(
+async def _grab(                     # noqa: C901 – long but linear
     browser,
     context,
     url: str,
@@ -75,30 +67,9 @@ async def _grab(
     max_scrolls: int | None,
     gates_enabled,
     gate_args,
-    headless: bool
+    interactive: bool,
 ):
-
-    """
-    Automate browser-based collection of page content, resources, and downloads.
-
-    @param browser: A playwright Browser instance used for automation.
-    @param context: A BrowserContext object for isolating session data and controlling the page.
-    @param url (str): Target URL to visit and extract data from.
-    @param out_dir (str): Directory where collected files, headers, and screenshots will be saved.
-    @param res_urls (set[str]): Set to be populated with URLs of requested resources.
-    @param req_hdrs (dict): Dictionary to be filled with observed HTTP request headers.
-    @param resp_hdrs (dict): Dictionary to be filled with observed HTTP response headers.
-    @param url_map (dict): Mapping of resource URLs to local filenames.
-    @param stats (dict): Mutable dictionary to track statistics like 'downloads', 'warnings', 'errors'.
-    @param pause_ms (int): Time in milliseconds to pause (currently unused in function).
-    @param max_scrolls (int | None): Optional max number of scrolls to perform on the page (not used here).
-    @param gates_enabled: Feature toggles for gate functions like UA spoofing or JS patching.
-    @param gate_args: Arguments passed to the gate functions for customizing behavior.
-    @param headless (bool): If False, the page will remain open for manual inspection until closed.
-
-    @return: None. Saves output files to `out_dir`, modifies `res_urls`, `req_hdrs`, `resp_hdrs`, `stats` in place.
-    """
-    # gates (UA spoof etc.)
+    """Navigate, collect artefacts, then optionally pause for user inspection."""
     await run_gates(
         None, context,
         gates_enabled=gates_enabled, gate_args=gate_args,
@@ -108,7 +79,7 @@ async def _grab(
     page = await context.new_page()
 
     # network hooks
-    page.on("request", lambda r: asyncio.create_task(handle_request(r, res_urls)))
+    page.on("request",  lambda r: asyncio.create_task(handle_request(r, res_urls)))
     page.on("response", lambda r: asyncio.create_task(
         handle_response(r, out_dir, url_map, resp_hdrs, stats)))
     downloads: list[asyncio.Task] = []
@@ -118,65 +89,37 @@ async def _grab(
     # navigation
     print(f"[INFO] Loading page: {url}")
     try:
-        await page.goto(url.strip(), wait_until="domcontentloaded", timeout=0)
+        await page.goto(url, wait_until="domcontentloaded", timeout=0)
     except Error as exc:
-        msg = str(exc)
-        if ("Download is starting" in msg) or ("net::ERR_ABORTED" in msg):
-            print("[INFO] Navigation became a download; DOM skipped")
-        else:
+        if ("Download is starting" not in str(exc)) and ("net::ERR_ABORTED" not in str(exc)):
             print(f"[ERROR] Failed to load {url}: {exc}")
             stats["errors"] += 1
 
+    # wait for downloads
     if downloads:
-        try:
-            results = await asyncio.gather(*downloads, return_exceptions=True)
-            for result in results:
-                if isinstance(result, Exception):
-                    if isinstance(result, TargetClosedError):
-                        print("[INFO] Download aborted due to page/browser closure.")
-                    else:
-                        print(f"[WARN] Download task failed: {type(result).__name__}: {result}")
-        except Exception as e:
-            print(f"[WARN] Download gather interrupted: {type(e).__name__}: {e}")
-
-    # scroll to bottom (if still open)
-    if not page.is_closed():
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        try:
-            await page.wait_for_load_state("load", timeout=10000)
-        except Error:
-            print("[WARN] Timeout waiting for load state. Proceeding anyway.")
+        await asyncio.gather(*downloads, return_exceptions=True)
 
     # artefacts
     os.makedirs(out_dir, exist_ok=True)
     if not page.is_closed():
         await save_screenshot(page, out_dir)
-
     save_json(os.path.join(out_dir, "http_request_headers.json"), req_hdrs)
     save_json(os.path.join(out_dir, "http_response_headers.json"), resp_hdrs)
     save_json(os.path.join(out_dir, "cookies.json"), await context.cookies())
 
-    if not page.is_closed():
-        with suppress(Error):
-            html = await page.content()
-            if html:
-                from .html import save_html_files
-                save_html_files(out_dir, html, url_map)
-
-    if not page.is_closed() and not headless:
-        print("[INFO] Headful mode active – interact with the page. Close the tab to continue.")
+    # optional manual phase
+    if interactive and not page.is_closed():
+        print("[INFO] Visible window – interact freely. Close the tab to continue.")
         try:
-            await page.wait_for_event("close", timeout=1000000)
-        except KeyboardInterrupt:
-            print("[INFO] Keyboard interrupt detected. Exiting...")
+            await page.wait_for_event("close", timeout=86400000)  # up to 24 h
+        except (KeyboardInterrupt, asyncio.TimeoutError):
+            pass
 
-    print(f"Captured {len(res_urls)} resources")
-    print(f"downloads={stats['downloads']} warnings={stats['warnings']} errors={stats['errors']}")
-
+    print(f"Captured {len(res_urls)} resources | "
+          f"downloads={stats['downloads']} warnings={stats['warnings']} errors={stats['errors']}")
     await browser.close()
 
 # ───────────────────────── public API ──────────────────────────────
-
 async def save_page(
     url: str,
     out_dir: str,
@@ -184,93 +127,72 @@ async def save_page(
     gates_enabled: dict | None = None,
     gate_args: dict | None = None,
     proxy: dict | None = None,
-    engine: str = "auto",
-    headless: bool = True,
-    timeout_sec: int = 10
+    engine: str = "auto",          # auto | playwright | camoufox | patchright
+    launch_headless: bool = False, # Playwright launch flag (always False for realism)
+    interactive: bool = False,     # True ⇢ real window, False ⇢ Xvfb-hidden
+    timeout_sec: int = 30,
 ):
-    """
-    Visit a webpage, collect artefacts, and save all HTTP/session data, optionally using CamouFox or Playwright.
-
-    @param url (str): The target URL to visit and analyze.
-    @param out_dir (str): Base path to save output files (HTML, headers, screenshots, downloads, cookies).
-    @param gates_enabled (dict | None): Dictionary of feature flags for gate-level spoofing or interaction.
-    @param gate_args (dict | None): Arguments for gates such as user-agent, language, geolocation, etc.
-    @param proxy (dict | None): Proxy configuration dict (e.g., {"server": "...", "username": "...", "password": "..."}).
-    @param engine (str): Browser engine selector. Supports "auto", "camoufox", or "playwright".
-    @param headless (bool): If False, opens the browser in headful mode for manual interaction.
-    @param timeout_sec (int): Max seconds to allow page capture before force timeout.
-
-    @return: None. Writes results to `out_dir`, may print warnings or errors, modifies no return values.
-    """
-
+    """High-level wrapper that chooses the backend then delegates to *_grab*."""
     gates_enabled = gates_enabled or {}
-    gate_args = gate_args or {}
+    gate_args     = gate_args or {}
 
+    # ----- output dir slug -----
     parsed = urlparse(url)
     netloc = parsed.netloc.replace(":", "_")
-    path = parsed.path.strip("/").replace("/", "_") or "root"
-    slug = f"{netloc}_{path}"
-    short_hash = hashlib.md5(url.encode()).hexdigest()[:6]
-    out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}_{short_hash}")
-
-    pause_ms = 150
-    max_scrolls = gate_args.get("max_scrolls")
+    path   = parsed.path.strip("/").replace("/", "_") or "root"
+    slug   = f"{netloc}_{path}"
+    short  = hashlib.md5(url.encode()).hexdigest()[:6]
+    out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}_{short}")
 
     res_urls: set[str] = set()
-    req_hdrs, resp_hdrs, url_map = {}, {}, {}
     stats = {"warnings": 0, "errors": 0, "downloads": 0}
+    req_hdrs, resp_hdrs, url_map = {}, {}, {}
+    pause_ms, max_scrolls = 150, gate_args.get("max_scrolls")
 
     async def _run(br, ctx):
         await _grab(
             br, ctx, url, out_dir,
             res_urls, req_hdrs, resp_hdrs, url_map, stats,
             pause_ms=pause_ms, max_scrolls=max_scrolls,
-            gates_enabled=gates_enabled, gate_args=gate_args, headless=headless
+            gates_enabled=gates_enabled, gate_args=gate_args,
+            interactive=interactive
         )
 
-    ua = gate_args.get("UserAgentGate", {}).get("ua_arg", "")
-    want_camoufox = engine == "camoufox"
+    ua              = gate_args.get("UserAgentGate", {}).get("ua_arg", "")
+    want_camoufox   = engine == "camoufox"
+    want_patchright = engine == "patchright"
     force_playwright = engine == "playwright"
-    use_camoufox = _HAS_CAMOUFOX and not force_playwright and (
-        want_camoufox or "firefox" in ua.lower()
-    )
 
-    if use_camoufox and "firefox" in ua.lower() and not want_camoufox:
-        print("[INFO] 'firefox' detected in UA – switching to CamouFox engine.")
-        if any(gates_enabled.get(g) for g in ("UserAgentGate", "GeolocationGate", "LanguageGate")):
-            print("[WARN] CamouFox overrides most spoofing gates – UA/geo/lang spoofing may not apply. Use --engine to switch to Playwright's engine")
-
-    if use_camoufox:
+    # ---------- CamouFox branch ----------
+    if (_HAS_CAMOUFOX and not force_playwright and
+        (want_camoufox or ("firefox" in ua.lower() and not want_patchright))):
         try:
-            print("[INFO] Launching CamouFox browser")
-            async with AsyncCamoufox(headless=headless, proxy=proxy, geoip=True) as br:
-                try:
-                    ctx = await br.new_context(accept_downloads=True)
-                except TypeError:
-                    print("[WARN] CamouFox lacks accept_downloads – downloads must be saved via response body")
-                    ctx = await br.new_context()
+            print("[INFO] Launching CamouFox")
+            async with AsyncCamoufox(headless=launch_headless, proxy=proxy, geoip=True) as br:
+                ctx = await br.new_context(accept_downloads=True)
                 await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
                 return
-        except TimeoutError:
-            print(f"[ERROR] Timeout: page processing exceeded {timeout_sec} seconds.")
-            stats["errors"] += 1
-            return
         except Exception as e:
-            print(f"[WARN] CamouFox failed: {e}. Falling back to stock.")
+            print(f"[WARN] CamouFox failed: {e}. Falling back.")
 
-    try:
-        async with async_playwright() as p:
-            br, ctx = await create_context(
-                p, gate_args, proxy=proxy,
-                accept_downloads=True, headless=headless
-            )
-            await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
+    # ---------- Patchright branch ----------
+    if _HAS_PATCHRIGHT and want_patchright and not force_playwright:
+        try:
+            print("[INFO] Launching Patchright")
+            async with async_patchright() as p:
+                br, ctx = await create_context(
+                    p, gate_args, proxy=proxy,
+                    accept_downloads=True, headless=launch_headless
+                )
+                await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
+                return
+        except Exception as e:
+            print(f"[WARN] Patchright failed: {e}. Falling back.")
 
-    except TimeoutError:
-        print(f"[ERROR] Timeout: page processing exceeded {timeout_sec} seconds.")
-        stats["errors"] += 1
-
-    except Exception as e:
-        print(f"[ERROR] Unexpected failure: {type(e).__name__}: {e}")
-        stats["errors"] += 1
-
+    # ---------- Stock Playwright ----------
+    async with async_pw() as p:
+        br, ctx = await create_context(
+            p, gate_args, proxy=proxy,
+            accept_downloads=True, headless=launch_headless
+        )
+        await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)

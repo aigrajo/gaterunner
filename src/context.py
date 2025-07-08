@@ -9,6 +9,19 @@ is selected per run based on the UA’s OS family and form‑factor, then random
 values are drawn only from that profile – keeping the overall fingerprint
 coherent while still varied.
 """
+from src.clienthints import parse_chromium_ua, parse_chromium_version, parse_chromium_full_version
+
+"""
+context.py – create a Playwright **BrowserContext** with a JavaScript and
+network fingerprint that consistently matches the supplied User‑Agent string.
+
+Uses *base profiles* instead of picking each hardware trait
+independently.  A base profile is a small template that describes valid
+ranges/pools for RAM, CPU cores, screen size and WebGL strings.  One profile
+is selected per run based on the UA’s OS family and form‑factor, then random
+values are drawn only from that profile – keeping the overall fingerprint
+coherent while still varied.
+"""
 
 import asyncio
 import json
@@ -60,23 +73,11 @@ async def _build_apply_stealth():
 
         return _apply
 
-_loop = (
-    asyncio.get_event_loop()
-    if asyncio.get_event_loop_policy().get_event_loop()
-    else asyncio.new_event_loop()
-)
-_apply_stealth = _loop.run_until_complete(_build_apply_stealth())
+_apply_stealth = asyncio.run(_build_apply_stealth())
 
 # ──────────────────────────────
-# Local helpers & resources
+# JS templates & extras
 # ──────────────────────────────
-
-from .clienthints import (  # noqa: E402 – after shim
-    extract_high_entropy_hints,
-    parse_chromium_full_version,
-    parse_chromium_ua,
-    parse_chromium_version,
-)
 
 _JS_DIR = Path(__file__).resolve().parent / "js"
 _JS_TEMPLATE_PATH = _JS_DIR / "spoof_useragent.js"
@@ -91,20 +92,15 @@ _FWK_STEALTH_TEMPLATE = _FWK_STEALTH_PATH.read_text(encoding="utf-8")
 _CHROMIUM_STEALTH_TEMPLATE = _CHROMIUM_STEALTH_PATH.read_text(encoding="utf-8")
 _WEBGL_PATCH_TEMPLATE = _WEBGL_PATCH_PATH.read_text(encoding="utf-8")
 
-#General stealth
+# General stealth – pruned list (headed window makes most old patches redundant)
 _EXTRA_JS_FILES = [
-    "canvas_webgl_noise.js",
-    "audio_context_noise.js",
     "font_mask.js",
     "webrtc_leak_block.js",
-    "dpr_css_patch.js",
-    "sensor_api_stub.js",
-    "network_info_stub.js",
-    "speech_synthesis_stub.js",
-    "gamepad_midi_hid.js",
+    "network_info_stub.js",  # only used for mobile‑UA profiles
     "performance_timing.js",
-    "incognito.js"
+    "incognito.js",
 ]
+
 _EXTRA_JS_SNIPPETS = {
     name: (_JS_DIR / name).read_text("utf-8") for name in _EXTRA_JS_FILES
 }
@@ -385,6 +381,7 @@ async def create_context(
             )
 
             if engine == "chromium":
+                from src.clienthints import extract_high_entropy_hints
                 entropy = extract_high_entropy_hints(ua)
                 brand, brand_v = parse_chromium_ua(ua)
                 chromium_v = parse_chromium_version(ua)
@@ -425,28 +422,29 @@ async def create_context(
 
         context = await browser.new_context(**ctx_args)
 
-        # Add this mapping right after base = _select_base_profile(ua)
-        conn_profile_map = {
-            "desk_low": ("wifi", "3g", 5, 150, "false"),
-            "desk_mid": ("wifi", "4g", 20, 80, "false"),
-            "desk_high": ("ethernet", "4g", 50, 30, "false"),
-            "mac_notch": ("wifi", "4g", 25, 60, "false"),
-            "chrome_book": ("wifi", "3g", 10, 120, "false"),
-            "mobile_high": ("cellular", "5g", 20, 100, "true"),
-        }
+        if spoof_ua:
+            # Add this mapping right after base = _select_base_profile(ua)
+            conn_profile_map = {
+                "desk_low": ("wifi", "3g", 5, 150, "false"),
+                "desk_mid": ("wifi", "4g", 20, 80, "false"),
+                "desk_high": ("ethernet", "4g", 50, 30, "false"),
+                "mac_notch": ("wifi", "4g", 25, 60, "false"),
+                "chrome_book": ("wifi", "3g", 10, 120, "false"),
+                "mobile_high": ("cellular", "5g", 20, 100, "true"),
+            }
 
-        conn_type, eff_type, downlink, rtt, save_data = conn_profile_map.get(base["id"],
-                                                                             ("wifi", "4g", 10, 100, "false"))
-        net_info_patch = _EXTRA_JS_SNIPPETS["network_info_stub.js"]
-        net_info_patch = (
-            net_info_patch
-            .replace("__CONN_TYPE__", f'"{conn_type}"')
-            .replace("__EFFECTIVE_TYPE__", f'"{eff_type}"')
-            .replace("__DOWNLINK__", str(downlink))
-            .replace("__RTT__", str(rtt))
-            .replace("__SAVE_DATA__", save_data)
-        )
-        await context.add_init_script(net_info_patch)
+            conn_type, eff_type, downlink, rtt, save_data = conn_profile_map.get(base["id"],
+                                                                                 ("wifi", "4g", 10, 100, "false"))
+            net_info_patch = _EXTRA_JS_SNIPPETS["network_info_stub.js"]
+            net_info_patch = (
+                net_info_patch
+                .replace("__CONN_TYPE__", f'"{conn_type}"')
+                .replace("__EFFECTIVE_TYPE__", f'"{eff_type}"')
+                .replace("__DOWNLINK__", str(downlink))
+                .replace("__RTT__", str(rtt))
+                .replace("__SAVE_DATA__", save_data)
+            )
+            await context.add_init_script(net_info_patch)
 
         if spoof_ua:
             if engine == "chromium":
