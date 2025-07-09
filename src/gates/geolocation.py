@@ -11,7 +11,10 @@ class GeolocationGate(GateBase):
             origin = f'{parsed_url.scheme}://{parsed_url.netloc}'
 
             print(f"[GATE] Granted geolocation permissions: {geolocation}")
-            await context.grant_permissions(["geolocation"], origin=origin)
+            if url.startswith('https://') or url.startswith('http://localhost'):
+                await context.grant_permissions(['geolocation'], origin=url)
+            else:
+                await context.grant_permissions(['geolocation'])
 
             return True
         return False

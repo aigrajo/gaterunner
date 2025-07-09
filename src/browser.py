@@ -5,7 +5,6 @@ browser.py
 Drives Playwright, CamouFox or Patchright, captures every redirect hop,
 saves artefacts, and tallies stats: downloads / warnings / errors.
 """
-
 import asyncio, os, hashlib
 from contextlib import suppress
 from pathlib import Path
@@ -117,7 +116,9 @@ async def _grab(                     # noqa: C901 – long but linear
 
     print(f"Captured {len(res_urls)} resources | "
           f"downloads={stats['downloads']} warnings={stats['warnings']} errors={stats['errors']}")
-    await browser.close()
+
+    # ← **browser.close() removed** – one close per browser instance happens in _run
+
 
 # ───────────────────────── public API ──────────────────────────────
 async def save_page(
@@ -132,7 +133,7 @@ async def save_page(
     interactive: bool = False,     # True ⇢ real window, False ⇢ Xvfb-hidden
     timeout_sec: int = 30,
 ):
-    """High-level wrapper that chooses the backend then delegates to *_grab*."""
+    """Decide which engine to use, then delegate to *_grab*."""
     gates_enabled = gates_enabled or {}
     gate_args     = gate_args or {}
 
@@ -150,30 +151,39 @@ async def save_page(
     pause_ms, max_scrolls = 150, gate_args.get("max_scrolls")
 
     async def _run(br, ctx):
-        await _grab(
-            br, ctx, url, out_dir,
-            res_urls, req_hdrs, resp_hdrs, url_map, stats,
-            pause_ms=pause_ms, max_scrolls=max_scrolls,
-            gates_enabled=gates_enabled, gate_args=gate_args,
-            interactive=interactive
-        )
+        try:
+            await _grab(
+                br, ctx, url, out_dir,
+                res_urls, req_hdrs, resp_hdrs, url_map, stats,
+                pause_ms=pause_ms, max_scrolls=max_scrolls,
+                gates_enabled=gates_enabled, gate_args=gate_args,
+                interactive=interactive
+            )
+        finally:
+            with suppress(Exception):
+                await br.close()
 
-    ua              = gate_args.get("UserAgentGate", {}).get("ua_arg", "")
-    want_camoufox   = engine == "camoufox"
-    want_patchright = engine == "patchright"
+    ua               = gate_args.get("UserAgentGate", {}).get("ua_arg", "")
+    want_camoufox    = engine == "camoufox"
+    want_patchright  = engine == "patchright"
     force_playwright = engine == "playwright"
 
     # ---------- CamouFox branch ----------
+    orig_display = os.environ.get("DISPLAY")          # preserve outer Xvfb
     if (_HAS_CAMOUFOX and not force_playwright and
-        (want_camoufox or ("firefox" in ua.lower() and not want_patchright))):
+            (want_camoufox or ("firefox" in ua.lower() and not want_patchright))):
         try:
             print("[INFO] Launching CamouFox")
-            async with AsyncCamoufox(headless=launch_headless, proxy=proxy, geoip=True) as br:
+            camou_headless = True if not interactive else False
+            async with AsyncCamoufox(headless=camou_headless,
+                                     proxy=proxy, geoip=True) as br:
                 ctx = await br.new_context(accept_downloads=True)
                 await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
                 return
         except Exception as e:
             print(f"[WARN] CamouFox failed: {e}. Falling back.")
+            if orig_display:
+                os.environ["DISPLAY"] = orig_display  # restore for fallback
 
     # ---------- Patchright branch ----------
     if _HAS_PATCHRIGHT and want_patchright and not force_playwright:

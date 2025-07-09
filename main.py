@@ -23,24 +23,27 @@ def deobfuscate_url(text: str) -> str:
                 .replace("hxxps://", "https://")
                 .replace("[.]", ".").replace("[:]", ":"))
 
-# ─── single URL runner ─────────────────────────────────────────────
+# ─── single URL runner ────────────────────────────────────────────
 def run_single_url(url: str, args):
     if not is_valid_url(url):
-        print("[ERROR] Invalid URL:", url); return
+        print("[ERROR] Invalid URL:", url)
+        return
 
+    # ── Gate switches ──────────────────────────────────────
     gates_enabled, gate_args = {}, {}
 
-    # geo, language, UA … (unchanged logic)
     if args.country:
         cc = args.country.upper()
         if cc not in COUNTRY_GEO:
-            print(f"[ERROR] Invalid country code: {cc}"); return
+            print(f"[ERROR] Invalid country code: {cc}")
+            return
         gates_enabled["GeolocationGate"] = True
         gate_args["GeolocationGate"] = {"geolocation": jitter_country_location(cc)}
 
     if args.lang:
         if not is_valid_lang(args.lang):
-            print(f"[ERROR] Invalid language: {args.lang}"); return
+            print(f"[ERROR] Invalid language: {args.lang}")
+            return
         gates_enabled["LanguageGate"] = True
         gate_args["LanguageGate"] = {"language": args.lang}
 
@@ -48,30 +51,26 @@ def run_single_url(url: str, args):
         gates_enabled["UserAgentGate"] = True
         gate_args["UserAgentGate"] = {
             "user_agent": choose_ua(args.ua),
-            "ua_arg":     args.ua
+            "ua_arg":     args.ua,
         }
 
     proxy = {"server": args.proxy} if args.proxy and is_valid_proxy(args.proxy) else None
     if args.proxy and not proxy:
-        print("[ERROR] Invalid proxy format."); return
+        print("[ERROR] Invalid proxy format.")
+        return
 
-    domain = urlparse(url).netloc.replace(":", "_")
+    # ── housekeeping ───────────────────────────────────────
+    domain  = urlparse(url).netloc.replace(":", "_")
     out_dir = f"./data/saved_{domain}"
     timeout = int(args.timeout)
     print(f"[INFO] Output directory: {out_dir}")
 
-    # ─── display plan ───
-    interactive = args.headful               # True ⇢ real window
-    use_virtual = not interactive            # False ⇢ no Xvfb
-    launch_headless = False                  # always run “headed” for FP realism
+    interactive    = args.headful  # real window when --headful
+    launch_headless = False        # full fingerprint realism
 
-    if use_virtual:
-        try:
-            from pyvirtualdisplay import Display
-        except ImportError:
-            print("[ERROR] Install pyvirtualdisplay for hidden mode."); return
-        with Display(visible=0, size=(1920, 1080)):
-            asyncio.run(save_page(
+    def _run():
+        asyncio.run(
+            save_page(
                 url, out_dir,
                 gates_enabled=gates_enabled,
                 gate_args=gate_args,
@@ -79,28 +78,44 @@ def run_single_url(url: str, args):
                 engine=args.engine,
                 launch_headless=launch_headless,
                 interactive=interactive,
-                timeout_sec=timeout
-            ))
-    else:
-        asyncio.run(save_page(
-            url, out_dir,
-            gates_enabled=gates_enabled,
-            gate_args=gate_args,
-            proxy=proxy,
-            engine=args.engine,
-            launch_headless=launch_headless,
-            interactive=interactive,
-            timeout_sec=timeout
-        ))
+                timeout_sec=timeout,
+            )
+        )
+
+    if interactive:      # user asked for a visible window
+        _run()
+        return
+
+    # Hidden mode: always start one outer Xvfb.
+    # Nested displays (CamouFox's internal Xvfb) do not conflict.
+    from pyvirtualdisplay import Display
+    with Display(visible=0, size=(1920, 1080)):
+        _run()
 
 # ─── batch wrapper & CLI ───────────────────────────────────────────
 def run_batch(urls, args):
-    start = time.time()
-    for idx, raw in enumerate(urls, 1):
-        url = deobfuscate_url(raw.strip())
-        print(f"\n[{idx}/{len(urls)}] {url}")
-        run_single_url(url, args)
-    print(f"\n[INFO] Finished in {time.time() - start:.1f} s")
+    total = len(urls)
+    start_time = time.time()
+
+    for count, raw_url in enumerate(urls, 1):
+        url = deobfuscate_url(raw_url.strip())
+
+        percent = int(100 * count / total)
+        elapsed = time.time() - start_time
+        elapsed_fmt = f"{int(elapsed//60):02d}m:{int(elapsed%60):02d}s"
+
+        print(f"[*] Running gatekey for: {url}")
+        print(f"[*] Progress: {count}/{total} ({percent}%) | Elapsed: {elapsed_fmt}")
+
+        try:
+            run_single_url(url, args)
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            print(f"[TIMEOUT] Skipped {url}: {exc}")
+        except Exception as exc:
+            print(f"[ERROR] {url} failed: {type(exc).__name__}: {exc}")
+
+    total_elapsed = time.time() - start_time
+    print(f"[*] Done. Total time: {int(total_elapsed//60):02d}m:{int(total_elapsed%60):02d}s")
 
 def main():
     p = argparse.ArgumentParser()

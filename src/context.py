@@ -99,6 +99,7 @@ _EXTRA_JS_FILES = [
     "network_info_stub.js",  # only used for mobile‑UA profiles
     "performance_timing.js",
     "incognito.js",
+    "speech_synthesis_stub.js"
 ]
 
 _EXTRA_JS_SNIPPETS = {
