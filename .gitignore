@@ -4,3 +4,4 @@ __pycache__/
 *.yara
 /tmp
 /yara
+scripts/

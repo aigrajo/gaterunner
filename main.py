@@ -4,6 +4,22 @@ from urllib.parse import urlparse
 from src.utils import COUNTRY_GEO, choose_ua, jitter_country_location
 from src.browser import save_page
 
+def _loop_exception_filter(loop, context):
+    """
+    Ignore Playwright’s stray net::ERR_ABORTED / TargetClosedError futures.
+    Everything else is delegated to the default handler so real bugs stay visible.
+    """
+    exc = context.get("exception")
+    if exc and isinstance(exc, Exception):
+        txt = str(exc)
+        if (
+            "net::ERR_ABORTED" in txt
+            or "Target page, context or browser has been closed" in txt
+        ):
+            return                             # swallow the noise
+    loop.default_exception_handler(context)
+
+
 # ─── helpers ────────────────────────────────────────────────────────
 def is_valid_url(url: str) -> bool:
     try:
@@ -23,14 +39,17 @@ def deobfuscate_url(text: str) -> str:
                 .replace("hxxps://", "https://")
                 .replace("[.]", ".").replace("[:]", ":"))
 
-# ─── single URL runner ────────────────────────────────────────────
 def run_single_url(url: str, args):
+    """Crawl one URL with the requested gates / proxy / UA setup."""
+
+    # ── basic validation ─────────────────────────────────────────
     if not is_valid_url(url):
         print("[ERROR] Invalid URL:", url)
         return
 
-    # ── Gate switches ──────────────────────────────────────
-    gates_enabled, gate_args = {}, {}
+    # ── Gate switches & their arguments ─────────────────────────
+    gates_enabled: dict[str, bool] = {}
+    gate_args:     dict[str, dict] = {}
 
     if args.country:
         cc = args.country.upper()
@@ -54,43 +73,50 @@ def run_single_url(url: str, args):
             "ua_arg":     args.ua,
         }
 
+    # ── proxy parsing ───────────────────────────────────────────
     proxy = {"server": args.proxy} if args.proxy and is_valid_proxy(args.proxy) else None
     if args.proxy and not proxy:
         print("[ERROR] Invalid proxy format.")
         return
 
-    # ── housekeeping ───────────────────────────────────────
+    # ── housekeeping paths & flags ─────────────────────────────
     domain  = urlparse(url).netloc.replace(":", "_")
     out_dir = f"./data/saved_{domain}"
     timeout = int(args.timeout)
     print(f"[INFO] Output directory: {out_dir}")
 
-    interactive    = args.headful  # real window when --headful
-    launch_headless = False        # full fingerprint realism
+    interactive     = args.headful          # real window when --headful
+    launch_headless = False                 # always launch with GUI bits (realism)
 
-    def _run():
-        asyncio.run(
-            save_page(
-                url, out_dir,
-                gates_enabled=gates_enabled,
-                gate_args=gate_args,
-                proxy=proxy,
-                engine=args.engine,
-                launch_headless=launch_headless,
-                interactive=interactive,
-                timeout_sec=timeout,
-            )
+    # ── async crawl wrapper – installs loop-level exception filter ──
+    async def _crawl():
+        asyncio.get_running_loop().set_exception_handler(_loop_exception_filter)
+
+        await save_page(
+            url,
+            out_dir,
+            gates_enabled=gates_enabled,
+            gate_args=gate_args,
+            proxy=proxy,
+            engine=args.engine,
+            launch_headless=launch_headless,
+            interactive=interactive,
+            timeout_sec=timeout,
         )
 
-    if interactive:      # user asked for a visible window
+    # ── synchronous helper to enter the async world ────────────
+    def _run():
+        asyncio.run(_crawl())
+
+    # ── headful vs. headless (Xvfb) branch ─────────────────────
+    if interactive:              # user asked for a visible browser window
         _run()
         return
 
-    # Hidden mode: always start one outer Xvfb.
-    # Nested displays (CamouFox's internal Xvfb) do not conflict.
-    from pyvirtualdisplay import Display
+    from pyvirtualdisplay import Display  # Xvfb for headless
     with Display(visible=0, size=(1920, 1080)):
         _run()
+
 
 # ─── batch wrapper & CLI ───────────────────────────────────────────
 def run_batch(urls, args):

@@ -35,20 +35,61 @@ from .resources import (
     save_json,
     save_screenshot,
     _fname_from_url,
+    enable_cdp_download_interceptor
 )
 
-# ───────────────────────── download helper ──────────────────────────
+# ───────────────────────── helpers (add near top of browser.py) ─────────────────────────
+from playwright._impl._errors import Error as PWError, TargetClosedError   # keeps old imports working
+
+async def _safe_goto(page, url: str, *, timeout: int = 40_000) -> bool:
+    """Navigate and swallow frame-detached / aborted errors.
+
+    Returns True on success, False when the page aborted (usually because
+    the CDP download interceptor detached the frame). Other errors still log.
+    """
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        return True
+    except PWError as exc:
+        if "net::ERR_ABORTED" in str(exc):
+            print(f"[ABORT] {url} – frame detached after download intercept")
+        else:
+            print(f"[ERROR] Failed to load {url}: {exc}")
+        # 🔽 make sure the tab is gone, swallow any error
+        with suppress(Exception):
+            await page.close()
+        return False
+
+
+async def _safe_screenshot(page, out_dir: str) -> None:
+    """Take a screenshot only if the tab is still alive."""
+    try:
+        await page.screenshot(path=f"{out_dir}/screenshot.png", full_page=True)
+    except TargetClosedError:
+        print("[INFO] tab closed before screenshot – skipped")
+    except Exception as exc:
+        print(f"[WARN] screenshot failed: {exc}")
+
+
+
 async def _save_download(dl, out_dir: str, stats: dict):
+    """Save a Playwright Download, avoiding duplicates from the CDP stream hook."""
     name = dl.suggested_filename or _fname_from_url(dl.url, "")
-    dst = Path(out_dir) / "downloads" / name
+    dst  = Path(out_dir) / "downloads" / name
     dst.parent.mkdir(parents=True, exist_ok=True)
+
+    if dst.exists():                       # already written by CDP interceptor
+        print(f"[SKIP] {dst.name} already written by CDP hook")
+        return
+
     try:
         await dl.save_as(dst)
         stats["downloads"] += 1
         print(f"[DOWNLOAD] Saved: {dst.name}")
-    except Exception as e:
+    except Exception as exc:
         stats["errors"] += 1
-        print(f"[WARN] Failed to save {name}: {type(e).__name__}: {e}")
+        print(f"[WARN] Failed to save {name}: {type(exc).__name__}: {exc}")
+
 
 # ───────────────────────── page grabber ─────────────────────────────
 async def _grab(                     # noqa: C901 – long but linear
@@ -77,6 +118,14 @@ async def _grab(                     # noqa: C901 – long but linear
 
     page = await context.new_page()
 
+    await enable_cdp_download_interceptor(
+        page,
+        Path(out_dir) / "downloads",
+        url_map,
+        resp_hdrs,
+        stats,
+    )
+
     # network hooks
     page.on("request",  lambda r: asyncio.create_task(handle_request(r, res_urls)))
     page.on("response", lambda r: asyncio.create_task(
@@ -85,14 +134,11 @@ async def _grab(                     # noqa: C901 – long but linear
     page.on("download", lambda dl: downloads.append(
         asyncio.create_task(_save_download(dl, out_dir, stats))))
 
-    # navigation
+    # navigation (guarded)
     print(f"[INFO] Loading page: {url}")
-    try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=0)
-    except Error as exc:
-        if ("Download is starting" not in str(exc)) and ("net::ERR_ABORTED" not in str(exc)):
-            print(f"[ERROR] Failed to load {url}: {exc}")
-            stats["errors"] += 1
+    ok = await _safe_goto(page, url)
+    if not ok:
+        return
 
     # wait for downloads
     if downloads:
@@ -101,7 +147,7 @@ async def _grab(                     # noqa: C901 – long but linear
     # artefacts
     os.makedirs(out_dir, exist_ok=True)
     if not page.is_closed():
-        await save_screenshot(page, out_dir)
+        await _safe_screenshot(page, out_dir)
     save_json(os.path.join(out_dir, "http_request_headers.json"), req_hdrs)
     save_json(os.path.join(out_dir, "http_response_headers.json"), resp_hdrs)
     save_json(os.path.join(out_dir, "cookies.json"), await context.cookies())
@@ -110,14 +156,13 @@ async def _grab(                     # noqa: C901 – long but linear
     if interactive and not page.is_closed():
         print("[INFO] Visible window – interact freely. Close the tab to continue.")
         try:
-            await page.wait_for_event("close", timeout=86400000)  # up to 24 h
+            await page.wait_for_event("close", timeout=86_400_000)  # 24 h
         except (KeyboardInterrupt, asyncio.TimeoutError):
             pass
 
     print(f"Captured {len(res_urls)} resources | "
           f"downloads={stats['downloads']} warnings={stats['warnings']} errors={stats['errors']}")
 
-    # ← **browser.close() removed** – one close per browser instance happens in _run
 
 
 # ───────────────────────── public API ──────────────────────────────
