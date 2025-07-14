@@ -37,7 +37,7 @@ from .resources import (
     save_json,
     save_screenshot,
     _fname_from_url,
-    enable_cdp_download_interceptor
+    enable_cdp_download_interceptor, _make_slug
 )
 
 # ───────────────────────── helpers (add near top of browser.py) ─────────────────────────
@@ -192,9 +192,9 @@ async def save_page(
     parsed = urlparse(url)
     netloc = parsed.netloc.replace(":", "_")
     path   = parsed.path.strip("/").replace("/", "_") or "root"
-    slug   = f"{netloc}_{path}"
-    short  = hashlib.md5(url.encode()).hexdigest()[:6]
-    out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}_{short}")
+    path = parsed.path.strip("/").replace("/", "_") or "root"
+    slug = _make_slug(netloc, path)
+    out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}")
 
     res_urls: set[str] = set()
     stats = {"warnings": 0, "errors": 0, "downloads": 0}

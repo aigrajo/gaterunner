@@ -221,6 +221,14 @@ async def handle_response(
         if is_download
         else os.path.join(out_dir, RESOURCE_DIRS.get(req_type, "other"))
     )
+
+    if len(os.path.basename(dirpath)) > 200:
+        digest = hashlib.md5(dirpath.encode()).hexdigest()[:8]
+        dirpath = os.path.join(
+            os.path.dirname(dirpath),
+            f"{os.path.basename(dirpath)[:200]}_{digest}",
+        )
+
     os.makedirs(dirpath, exist_ok=True)
 
     fpath = _dedup(Path(dirpath) / fname)
@@ -414,4 +422,13 @@ async def enable_cdp_download_interceptor(
 
 
     cdp.on("Fetch.requestPaused", _on_paused)
+
+_MAX_SLUG_LEN = 80
+
+def _make_slug(netloc: str, path: str, max_len: int = _MAX_SLUG_LEN) -> str:
+    raw = f"{netloc}_{path}".rstrip("_")
+    tail = hashlib.md5(raw.encode()).hexdigest()[:8]   # 8-char hash keeps slugs unique
+    if len(raw) > max_len:
+        raw = raw[:max_len]
+    return f"{raw}_{tail}"
 
