@@ -1,14 +1,3 @@
-"""
-context.py – create a Playwright **BrowserContext** with a JavaScript and
-network fingerprint that consistently matches the supplied User‑Agent string.
-
-Uses *base profiles* instead of picking each hardware trait
-independently.  A base profile is a small template that describes valid
-ranges/pools for RAM, CPU cores, screen size and WebGL strings.  One profile
-is selected per run based on the UA’s OS family and form‑factor, then random
-values are drawn only from that profile – keeping the overall fingerprint
-coherent while still varied.
-"""
 from src.clienthints import parse_chromium_ua, parse_chromium_version, parse_chromium_full_version
 
 """
@@ -99,7 +88,8 @@ _EXTRA_JS_FILES = [
     "network_info_stub.js",  # only used for mobile‑UA profiles
     "performance_timing.js",
     "incognito.js",
-    "speech_synthesis_stub.js"
+    "speech_synthesis_stub.js",
+    "ad_env_patch.js"
 ]
 
 _EXTRA_JS_SNIPPETS = {

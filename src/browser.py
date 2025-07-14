@@ -13,6 +13,8 @@ from urllib.parse import urlparse
 from playwright._impl._errors import TargetClosedError
 from playwright.async_api import async_playwright as async_pw, Error
 
+from .cdp_logger import attach_cdp_logger
+
 # ────────────── optional engines ──────────────
 try:
     from camoufox.async_api import AsyncCamoufox          # type: ignore
@@ -118,13 +120,17 @@ async def _grab(                     # noqa: C901 – long but linear
 
     page = await context.new_page()
 
-    await enable_cdp_download_interceptor(
-        page,
-        Path(out_dir) / "downloads",
-        url_map,
-        resp_hdrs,
-        stats,
-    )
+    is_chromium = page.context.browser.browser_type.name == "chromium"
+
+    if is_chromium:
+        await enable_cdp_download_interceptor(
+            page, Path(out_dir) / "downloads",
+            url_map, resp_hdrs, stats,
+        )
+        dump_cdp = await attach_cdp_logger(page, out_dir)
+    else:
+        # no-op placeholders keep the later cleanup call happy
+        dump_cdp = lambda *_, **__: None
 
     # network hooks
     page.on("request",  lambda r: asyncio.create_task(handle_request(r, res_urls)))
