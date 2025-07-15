@@ -76,10 +76,18 @@ def run_single_url(url: str, args):
         gates_enabled["LanguageGate"] = True
         gate_args["LanguageGate"] = {"language": args.lang}
 
-    if args.ua:
+    if args.ua_full:
         gates_enabled["UserAgentGate"] = True
+        ua_value = args.ua_full.strip()
         gate_args["UserAgentGate"] = {
-            "user_agent": choose_ua(args.ua),
+            "user_agent": ua_value,
+            "ua_arg": ua_value,  # used later for engine selection
+        }
+    elif args.ua:
+        gates_enabled["UserAgentGate"] = True
+        resolved_ua = choose_ua(args.ua)
+        gate_args["UserAgentGate"] = {
+            "user_agent": resolved_ua,
             "ua_arg": args.ua,
         }
 
@@ -146,7 +154,7 @@ def _draw_screen(done: int, total: int, start_ts: float, status: Dict[int, str])
     elapsed = time.time() - start_ts
     header = f"[{bar}] {int(pct*100):02d}% | {int(elapsed//60):02d}:{int(elapsed%60):02d} ({done}/{total})"
 
-    lines = [header] + [f"[W-{pid}] Scanning: {url}" for pid, url in sorted(status.items())]
+    lines = [header] + [f"[W-{pid}] {url}" for pid, url in sorted(status.items())]
     _LAST_LINE_COUNT = len(lines)
 
     sys.stdout.write("\n".join(lines) + "\n")
@@ -197,16 +205,67 @@ def run_batch_serial(urls: List[str], args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("input")
-    parser.add_argument("--country")
-    parser.add_argument("--ua")
-    parser.add_argument("--lang", default="en-US")
-    parser.add_argument("--proxy")
-    parser.add_argument("--engine", choices=["auto", "playwright", "camoufox", "patchright"], default="auto")
-    parser.add_argument("--headful", action="store_true")
-    parser.add_argument("--timeout", default="30")
-    parser.add_argument("--workers", type=int)
-    parser.add_argument("--plain-progress", action="store_true", help="Disable ANSI rewrite (simple line output)")
+    parser.add_argument(
+        "input",
+        help="Target URL or a file path containing one URL per line",
+    )
+
+    parser.add_argument(
+        "--country",
+        help="ISO 3166‑1 alpha‑2 country code for geolocation spoofing (e.g. 'US', 'DE')",
+    )
+
+    parser.add_argument(
+        "--ua",
+        help="UA selector such as 'Windows;;Chrome' (legacy template syntax)",
+    )
+
+    parser.add_argument(
+        "--ua-full",
+        help="Literal User‑Agent header value; bypasses choose_ua()",
+    )
+
+    parser.add_argument(
+        "--lang",
+        default="en-US",
+        help="Primary Accept‑Language header (e.g. 'fr-FR'); defaults to 'en-US'",
+    )
+
+    parser.add_argument(
+        "--proxy",
+        help="Upstream proxy URI, format socks5://host:port or http://host:port",
+    )
+
+    parser.add_argument(
+        "--engine",
+        choices=["auto", "playwright", "camoufox", "patchright"],
+        default="auto",
+        help="Browser engine: 'auto' (heuristic), 'playwright', 'camoufox', or 'patchright'",
+    )
+
+    parser.add_argument(
+        "--headful",
+        action="store_true",
+        help="Launch a visible browser window instead of running through a virtual display",
+    )
+
+    parser.add_argument(
+        "--timeout",
+        default="30",
+        help="Per‑page timeout in seconds; set higher for slow sites",
+    )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        help="Number of parallel worker processes (1 = serial mode)",
+    )
+
+    parser.add_argument(
+        "--plain-progress",
+        action="store_true",
+        help="Disable ANSI progress bar; print simple line output instead",
+    )
 
     args = parser.parse_args()
 

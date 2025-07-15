@@ -7,3 +7,8 @@ timezonefinder~=6.5.9
 httpagentparser~=1.9.5
 camoufox~=0.4.11
 camoufox[geoip]
+patchright~=1.52.5
+httpx~=0.28.1
+aiofiles~=24.1.0
+yara-python~=4.5.4
+pyvirtualdisplay
