@@ -232,9 +232,17 @@ async def save_page(
                 await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
                 return
         except Exception as e:
-            print(f"[WARN] CamouFox failed: {e}. Falling back.")
+            print(f"[WARN] CamouFox failed: {e}")
+            # restore outer X display before bailing / retrying
             if orig_display:
-                os.environ["DISPLAY"] = orig_display  # restore for fallback
+                os.environ["DISPLAY"] = orig_display
+
+            # explicit --engine camoufox → do NOT fall back; bubble up
+            if engine != "auto":
+                raise
+
+            # auto mode only: try next engine
+            print("Falling back.")
 
     # ---------- Patchright branch ----------
     if _HAS_PATCHRIGHT and want_patchright and not force_playwright:
@@ -248,7 +256,8 @@ async def save_page(
                 await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
                 return
         except Exception as e:
-            print(f"[WARN] Patchright failed: {e}. Falling back.")
+            print(f"[WARN] Patchright failed: {e}")
+            raise
 
     # ---------- Stock Playwright ----------
     async with async_pw() as p:
