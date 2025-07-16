@@ -19,6 +19,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from functools import lru_cache
 from playwright.async_api import Browser, BrowserContext, Playwright
 
 # ──────────────────────────────
@@ -102,126 +103,19 @@ _DEFAULT_UA = (
     "Chrome/125.0.0.0 Safari/537.36"
 )
 
-# ──────────────────────────────
-# Base‑profile table
-#   Each profile contains ranges / pools, NOT fixed single values.
-#   Add or adjust profiles as needed – selection logic will pick one per run.
-# ──────────────────────────────
 
-_BASE_PROFILES: List[Dict[str, Any]] = [
-    # ------------------------------------------------------ desktop low
-    {
-        "id": "desk_low",
-        "os": ["windows", "linux"],
-        "class": "desktop",
-        "mem": [2, 4, 6, 8, 12],                      # GiB
-        "cores": [2, 4, 6],                           # logical cores
-        "screen": [                                   # common 16∶9 / 16∶10 HD
-            (1280, 720), (1280, 800), (1366, 768),
-            (1440, 900), (1536, 864)
-        ],
-        "webgl": [                                    # integrated GPUs (2012‑2018)
-            ("Intel", "Intel(R) HD Graphics 4000"),
-            ("Intel", "Intel(R) HD Graphics 4600"),
-            ("Intel", "Intel(R) HD Graphics 5500"),
-            ("Intel", "Intel(R) HD Graphics 620"),
-            ("Intel", "Intel(R) UHD Graphics 600"),
-        ],
-    },
-    # ------------------------------------------------------ desktop mid
-    {
-        "id": "desk_mid",
-        "os": ["windows", "linux"],
-        "class": "desktop",
-        "mem": [8, 12, 16, 24],
-        "cores": [4, 6, 8, 10],
-        "screen": [                                   # FHD & WFHD
-            (1600, 900), (1920, 1080), (1920, 1200),
-            (2560, 1080), (2560, 1440)
-        ],
-        "webgl": [                                    # mid‑tier dGPUs & newer iGPUs
-            ("NVIDIA Corporation", "NVIDIA GeForce GTX 1050/PCIe/SSE2"),
-            ("NVIDIA Corporation", "NVIDIA GeForce GTX 1650/PCIe/SSE2"),
-            ("AMD", "AMD Radeon RX 570 Series"),
-            ("AMD", "AMD Radeon RX 6600"),
-            ("Intel", "Intel(R) Iris(R) Xe Graphics"),
-        ],
-    },
-    # ------------------------------------------------------ desktop high
-    {
-        "id": "desk_high",
-        "os": ["windows"],
-        "class": "desktop",
-        "mem": [16, 24, 32, 48, 64, 96, 128],
-        "cores": [8, 12, 16, 20, 24, 32],
-        "screen": [                                   # QHD‑UHD & ultrawide
-            (2560, 1440), (3440, 1440), (3840, 1600),
-            (3840, 2160), (5120, 2160), (5120, 2880),
-            (7680, 4320),
-        ],
-        "webgl": [                                    # recent RTX / RX GPUs
-            ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060/PCIe/SSE2"),
-            ("NVIDIA Corporation", "NVIDIA GeForce RTX 4070/PCIe/SSE2"),
-            ("NVIDIA Corporation", "NVIDIA GeForce RTX 4090/PCIe/SSE2"),
-            ("AMD", "AMD Radeon RX 6800 XT"),
-            ("AMD", "AMD Radeon RX 7900 XTX"),
-        ],
-    },
-    # ------------------------------------------------------ mac laptop (M‑series + Intel)
-    {
-        "id": "mac_notch",
-        "os": ["mac"],
-        "class": "laptop",
-        "mem": [8, 16, 24, 32, 64],
-        "cores": [8, 10, 12],
-        "screen": [                                   # Retina & Liquid Retina
-            (2560, 1600), (2560, 1664), (2880, 1800), (2880, 1864),
-            (3024, 1964), (3456, 2234)
-        ],
-        "webgl": [                                    # Intel, AMD dGPU, Apple Silicon
-            ("Apple Inc.", "Intel Iris Plus Graphics 640"),
-            ("Apple Inc.", "AMD Radeon Pro 560X"),
-            ("Apple Inc.", "Apple M1"),
-            ("Apple Inc.", "Apple M2"),
-            ("Apple Inc.", "Apple M3"),
-        ],
-    },
-    # ------------------------------------------------------ ChromeOS laptop
-    {
-        "id": "chrome_book",
-        "os": ["chromeos"],
-        "class": "laptop",
-        "mem": [4, 8, 16],
-        "cores": [4, 8],
-        "screen": [                                   # typical Chromebook sizes
-            (1366, 768), (1920, 1080), (2256, 1504),
-        ],
-        "webgl": [
-            ("Google Inc.", "ANGLE (Intel, Intel(R) UHD Graphics 600, Direct3D11)"),
-            ("Google Inc.", "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, Direct3D11)"),
-        ],
-    },
-    # ------------------------------------------------------ mobile high‑end phones
-    {
-        "id": "mobile_high",
-        "os": ["android", "ios"],
-        "class": "phone",
-        "mem": [4, 6, 8, 12],                         # GiB reported via JS API (rounded)
-        "cores": [3, 4, 6, 8, 10, 12],                # logical
-        "screen": [                                   # CSS‑px @100% zoom, DPR = 3
-            (1179, 2556),   # iPhone 15 Pro
-            (1290, 2796),   # iPhone 15 Pro Max
-            (1080, 2340),   # Galaxy S24
-            (1152, 2436),   # Pixel 8
-        ],
-        "webgl": [                                    # modern mobile GPUs
-            ("Qualcomm", "Adreno (TM) 740"),
-            ("Qualcomm", "Adreno (TM) 750"),
-            ("Arm", "Mali-G715"),
-            ("Apple Inc.", "Apple A17"),
-        ],
-    },
-]
+_BASE_PROFILES_PATH = Path("src/data/base_profiles.json")
+
+@lru_cache(maxsize=1)
+def _load_base_profiles() -> List[Dict[str, Any]]:
+    """Return the profiles stored in base_profiles.json.
+
+    The lru_cache decorator keeps the parsed data
+    in memory, so repeated calls hit the cache
+    instead of the file system.
+    """
+    with _BASE_PROFILES_PATH.open(encoding="utf-8") as f:
+        return json.load(f)
 
 # ──────────────────────────────
 # Additional helpers
@@ -245,6 +139,7 @@ def _ua_os_family(ua: str) -> str:
 
 def _select_base_profile(ua: str) -> Dict[str, Any]:
     os_family = _ua_os_family(ua)
+    _BASE_PROFILES = _load_base_profiles()
     candidates = [p for p in _BASE_PROFILES if os_family in p["os"]]
     if not candidates:
         candidates = _BASE_PROFILES  # fallback – shouldn’t happen
