@@ -46,14 +46,8 @@
     }
   } catch (_) {}
 
-  /*──────── 3. navigator.languages length (Chromium) ────────*/
-  try {
-    if (navigator.languages?.length === 1) {
-      const base = navigator.languages[0];
-      const langs = [base, base.split('-')[0]];
-      Object.defineProperty(navigator, 'languages', { get: () => langs });
-    }
-  } catch (_) {}
+  /*──────── 3. REMOVED: navigator.languages handled by chromium_stealth.js ────────*/
+  // languages spoofing moved to comprehensive chromium_stealth.js to avoid conflicts
 
   /*──────── 4. IndexedDB presence (Firefox / Safari) ────────*/
   try {

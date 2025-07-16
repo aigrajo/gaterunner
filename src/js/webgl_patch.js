@@ -1,5 +1,7 @@
 /**
- * webgl_patch.js – spoof GPU strings and pixel‑hash output
+ * webgl_patch.js – comprehensive WebGL spoofing for all contexts
+ * Handles GPU vendor/renderer spoofing and pixel fingerprint protection
+ * across main thread, workers, and service workers
  */
 
 (function () {
@@ -66,11 +68,21 @@
       });
     }
 
-    // 2) readPixels hash scrub
+    // 2) readPixels hash scrub (includes canvas_webgl_noise functionality)
     if (!ctx.readPixels.__isPatched) {
       const scrubber = (x, y, w, h, format, type, pixels) => {
         const res = originalReadPixels.call(ctx, x, y, w, h, format, type, pixels);
-        try { scrubPixels(pixels, w, h); } catch (_) {}
+        try { 
+          scrubPixels(pixels, w, h);
+          
+          // Add additional noise for all buffers (canvas_webgl_noise functionality)
+          if (pixels && pixels.length > 0) {
+            const seed = crypto.getRandomValues ? crypto.getRandomValues(new Uint32Array(1))[0] : Date.now();
+            for (let i = 0; i < pixels.length; i += 4) {
+              pixels[i] ^= (seed ^ (seed << 13) ^ (seed >> 17) ^ (seed << 5)) & 1;
+            }
+          }
+        } catch (_) {}
         return res;
       };
       mirrorDescriptor(originalReadPixels, scrubber);
@@ -114,6 +126,54 @@
     });
   }
 
-  instrument(window.WebGLRenderingContext);
-  instrument(window.WebGL2RenderingContext);
+  // ───────────── comprehensive context coverage (main + workers) ──
+
+  // Main thread WebGL contexts
+  if (typeof window !== 'undefined') {
+    instrument(window.WebGLRenderingContext);
+    instrument(window.WebGL2RenderingContext);
+  }
+
+  // Worker contexts (Web Workers, Service Workers)
+  if (typeof self !== 'undefined' && typeof window === 'undefined') {
+    // We're in a worker context
+    instrument(self.WebGLRenderingContext);
+    instrument(self.WebGL2RenderingContext);
+    
+    // For OffscreenCanvas in workers
+    if (typeof OffscreenCanvas !== 'undefined') {
+      // Override getParameter directly for worker contexts since they may not use getExtension pattern
+      ['WebGLRenderingContext', 'WebGL2RenderingContext'].forEach(ctxName => {
+        const Context = self[ctxName];
+        if (Context && Context.prototype && Context.prototype.getParameter) {
+          const originalGetParameter = Context.prototype.getParameter;
+          
+          if (!originalGetParameter.__isWorkerPatched) {
+            const spoofedGetParameter = function getParameter(parameter) {
+              switch (parameter) {
+                case 37445: // UNMASKED_VENDOR_WEBGL  
+                  return vendor;
+                case 37446: // UNMASKED_RENDERER_WEBGL
+                  return renderer;
+                default:
+                  return originalGetParameter.call(this, parameter);
+              }
+            };
+            
+            mirrorDescriptor(originalGetParameter, spoofedGetParameter);
+            Object.defineProperty(spoofedGetParameter, '__isWorkerPatched', { value: true });
+            
+            Context.prototype.getParameter = spoofedGetParameter;
+          }
+        }
+      });
+    }
+  }
+
+  // Global scope coverage (covers additional edge cases)
+  if (typeof globalThis !== 'undefined') {
+    instrument(globalThis.WebGLRenderingContext);
+    instrument(globalThis.WebGL2RenderingContext);
+  }
+
 })();

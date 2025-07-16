@@ -11,92 +11,8 @@
   Object.defineProperty(Notification, 'permission', { get: () => 'default' });
   Notification.requestPermission = async () => 'granted';
 
-  /* Advanced Speech-synthesis spoofing */
-  if ('speechSynthesis' in window) {
-    const voices = [{
-      voiceURI: 'Google US English',
-      name:     'Google US English',
-      lang:     'en-US',
-      localService: true,
-      default:  true
-    }];
-    
-    const nativeGetVoices = window.speechSynthesis.getVoices;
-    
-    // Advanced function cloning
-    const spoofedGetVoices = function getVoices() {
-      return voices;
-    };
-    
-    Object.setPrototypeOf(spoofedGetVoices, nativeGetVoices);
-    Object.defineProperty(spoofedGetVoices, 'toString', {
-      value: () => nativeGetVoices.toString(),
-      configurable: true
-    });
-    Object.defineProperty(spoofedGetVoices, 'name', {
-      value: 'getVoices',
-      configurable: true
-    });
-    
-    window.speechSynthesis.getVoices = spoofedGetVoices;
-  }
-
-  /* Advanced AudioContext fingerprinting protection */
-  const ctxProto = (window.AudioContext || window.webkitAudioContext)?.prototype;
-  if (ctxProto && !ctxProto.__patched) {
-    const nativeCreateAnalyser = ctxProto.createAnalyser;
-    
-    // Advanced function replacement with proper cloning
-    const spoofedCreateAnalyser = function createAnalyser() {
-      const analyser = nativeCreateAnalyser.apply(this, arguments);
-      const nativeFFT = analyser.getFloatFrequencyData;
-      
-      // Clone the FFT function with minimal detection footprint
-      const spoofedFFT = function getFloatFrequencyData(array) {
-        nativeFFT.call(this, array);
-        // Minimal audio noise injection
-        if (array && array.length > 0) {
-          for (let i = 0; i < array.length; i += 128) {
-            array[i] += (Math.random() - 0.5) * 1e-5; // Even smaller noise
-          }
-        }
-      };
-      
-      // Advanced function cloning
-      Object.setPrototypeOf(spoofedFFT, nativeFFT);
-      Object.defineProperty(spoofedFFT, 'toString', {
-        value: () => nativeFFT.toString(),
-        configurable: true
-      });
-      Object.defineProperty(spoofedFFT, 'name', {
-        value: 'getFloatFrequencyData',
-        configurable: true
-      });
-      
-      analyser.getFloatFrequencyData = spoofedFFT;
-      return analyser;
-    };
-    
-    // Clone createAnalyser function
-    Object.setPrototypeOf(spoofedCreateAnalyser, nativeCreateAnalyser);
-    Object.defineProperty(spoofedCreateAnalyser, 'toString', {
-      value: () => nativeCreateAnalyser.toString(),
-      configurable: true
-    });
-    Object.defineProperty(spoofedCreateAnalyser, 'name', {
-      value: 'createAnalyser',
-      configurable: true
-    });
-    
-    ctxProto.createAnalyser = spoofedCreateAnalyser;
-    ctxProto.__patched = true;
-  }
-
-  /* mediaDevices.getUserMedia stub */
-  if (navigator.mediaDevices && !navigator.mediaDevices.__patched) {
-    navigator.mediaDevices.getUserMedia = async () => new MediaStream();
-    navigator.mediaDevices.__patched = true;
-  }
+  /* REMOVED: Early getUserMedia override conflicts with later slow rejection */
+  // getUserMedia handling consolidated into single slow rejection implementation below
 
   /* privacy flags */
   Object.defineProperty(navigator, 'doNotTrack', { get: () => 'unspecified' });
@@ -129,37 +45,12 @@
 })();
 
 
+/* REMOVED: UserAgentData handled by spoof_useragent.js */
+// UserAgentData spoofing moved to dedicated spoof_useragent.js to avoid conflicts
+
 (() => {
   const fp = window.__fp;
   if (!fp) return;
-
-  /* 1. navigator.userAgentData */
-  Object.defineProperty(navigator, 'userAgentData', {
-    get() {
-      return {
-        brands: [
-          { brand: fp.brand || 'Chromium', version: fp.brand_v || fp.chromium_v },
-          { brand: 'Chromium',             version: fp.chromium_v },
-          { brand: 'Not)A;Brand',          version: '99' }
-        ],
-        mobile: fp.mobile || false,
-        getHighEntropyValues: keys =>
-          Promise.resolve(keys.reduce((o, k) => {
-            const map = {
-              architecture:     fp.arch,
-              bitness:          fp.bitness,
-              model:            fp.model,
-              platform:         fp.platform,
-              platformVersion:  fp.platform_version,
-              uaFullVersion:    fp.ua_full_version
-            };
-            if (k in map) o[k] = map[k];
-            return o;
-          }, {}))
-      };
-    },
-    configurable: true
-  });
 
   /* 2. WebGPU adapter spoof */
   if ('gpu' in navigator && navigator.gpu?.requestAdapter) {

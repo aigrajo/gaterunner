@@ -12,13 +12,14 @@ const _hc_map = {4:4,6:4,8:4,12:8,16:8,24:12,32:16};
   const spoofedValues = {
     languages: __LANG_JS__,
     deviceMemory: _mem,
-    hardwareConcurrency: _hc_map[_mem] || 4
+    hardwareConcurrency: _hc_map[_mem] || 4,
+    platform: '__PLATFORM__'
   };
   
   // Method 1: Prototype-level spoofing (harder to detect)
   const originalGetters = {};
   
-  ['languages', 'deviceMemory', 'hardwareConcurrency'].forEach(prop => {
+  ['languages', 'deviceMemory', 'hardwareConcurrency', 'platform'].forEach(prop => {
     const descriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, prop) ||
                       Object.getOwnPropertyDescriptor(navigator, prop);
     
@@ -72,6 +73,63 @@ const _hc_map = {4:4,6:4,8:4,12:8,16:8,24:12,32:16};
     }
   } catch (_) {}
   
+  // 1b. CRITICAL: Override platform at Navigator prototype level (main thread fix)
+  try {
+    const originalPlatformDesc = Object.getOwnPropertyDescriptor(Navigator.prototype, 'platform');
+    if (originalPlatformDesc && originalPlatformDesc.configurable) {
+      Object.defineProperty(Navigator.prototype, 'platform', {
+        get: function() { return EXPECTED_PLATFORM; },
+        set: originalPlatformDesc.set,
+        enumerable: originalPlatformDesc.enumerable,
+        configurable: originalPlatformDesc.configurable
+      });
+    }
+  } catch (_) {}
+  
+  // CREEPJS FIX: Propagate spoofed UA to Web Workers
+  // Report: "Navigator.userAgent: does not match worker scope" 
+  // Solution: Intercept Worker creation and inject UA override
+  if (typeof Worker !== 'undefined') {
+    const OriginalWorker = Worker;
+    
+    Worker = function(scriptURL, options) {
+      // Create a blob URL that sets the UA then loads the original script
+      const workerScript = `
+        // Set navigator properties in worker scope to match main thread
+        Object.defineProperty(navigator, 'userAgent', { 
+          get: function() { return '${EXPECTED_UA}'; },
+          configurable: true,
+          enumerable: true
+        });
+        Object.defineProperty(navigator, 'platform', { 
+          get: function() { return '${EXPECTED_PLATFORM}'; },
+          configurable: true,
+          enumerable: true
+        });
+        
+        // Import the original script
+        importScripts('${scriptURL}');
+      `;
+      
+      const blob = new Blob([workerScript], { type: 'application/javascript' });
+      const blobURL = URL.createObjectURL(blob);
+      
+      // Create worker with our modified script
+      const worker = new OriginalWorker(blobURL, options);
+      
+      // Clean up blob URL after worker starts
+      setTimeout(() => URL.revokeObjectURL(blobURL), 100);
+      
+      return worker;
+    };
+    
+    // Preserve original Worker properties
+    Object.setPrototypeOf(Worker, OriginalWorker);
+    Worker.prototype = OriginalWorker.prototype;
+    
+    console.log('[STEALTH] Worker constructor patched for UA/platform consistency');
+  }
+  
   // 2. Override userAgent at navigator instance level (main thread)
   try {
     const instanceDesc = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
@@ -80,6 +138,28 @@ const _hc_map = {4:4,6:4,8:4,12:8,16:8,24:12,32:16};
         get: function() { return EXPECTED_UA; },
         enumerable: true,
         configurable: true
+      });
+    }
+  } catch (_) {}
+  
+  // 2b. Override platform at navigator instance level (main thread)
+  try {
+    const platformInstanceDesc = Object.getOwnPropertyDescriptor(navigator, 'platform');
+    if (!platformInstanceDesc || platformInstanceDesc.configurable) {
+      Object.defineProperty(navigator, 'platform', {
+        get: function() { return EXPECTED_PLATFORM; },
+        enumerable: true,
+        configurable: true
+      });
+    } else {
+      // CREEPJS FIX: If platform is non-configurable, try alternative approaches
+      console.warn('[STEALTH] navigator.platform is non-configurable - this may cause mismatch detection');
+      
+      // Try to at least log the mismatch for debugging
+      console.log('[STEALTH] Platform mismatch detected:', {
+        actualPlatform: navigator.platform,
+        expectedPlatform: EXPECTED_PLATFORM,
+        userAgent: EXPECTED_UA
       });
     }
   } catch (_) {}
@@ -100,11 +180,9 @@ const EXPECTED_CORES = ${EXPECTED_CORES};
 const EXPECTED_BRANDS = ${JSON.stringify(EXPECTED_BRANDS)};
 const EXPECTED_MOBILE = ${EXPECTED_MOBILE};
 const EXPECTED_PLATFORM = '${EXPECTED_PLATFORM}';
-const EXPECTED_HIGH_ENTROPY = ${JSON.stringify(EXPECTED_HIGH_ENTROPY)};
+const EXPECTED_HIGH_ENTROPY = ${JSON.stringify(EXPECTED_HIGH_ENTROPY)}
 const EXPECTED_LANG = EXPECTED_LANGS[0] || 'en-US';
 const EXPECTED_TIMEZONE = '__TZ__';
-const EXPECTED_WEBGL_VENDOR = '__WEBGL_VENDOR__';
-const EXPECTED_WEBGL_RENDERER = '__WEBGL_RENDERER__';
 
 console.log('STEALTH: Service Worker preamble executing...');
 
@@ -179,35 +257,8 @@ try {
       configurable: true
     });
     
-    // Override userAgentData if it exists
-    if (navigator.userAgentData) {
-      Object.defineProperty(navigator.userAgentData, 'brands', { 
-        get: function() { return EXPECTED_BRANDS; },
-        enumerable: true,
-        configurable: true
-      });
-      Object.defineProperty(navigator.userAgentData, 'mobile', { 
-        get: function() { return EXPECTED_MOBILE; },
-        enumerable: true,
-        configurable: true
-      });
-      Object.defineProperty(navigator.userAgentData, 'platform', { 
-        get: function() { return EXPECTED_PLATFORM; },
-        enumerable: true,
-        configurable: true
-      });
-      
-      const originalGetHighEntropyValues = navigator.userAgentData.getHighEntropyValues;
-      navigator.userAgentData.getHighEntropyValues = async function(hints) {
-        const result = {};
-        for (const hint of hints || []) {
-          if (EXPECTED_HIGH_ENTROPY.hasOwnProperty(hint)) {
-            result[hint] = EXPECTED_HIGH_ENTROPY[hint];
-          }
-        }
-        return result;
-      };
-    }
+    /* REMOVED: userAgentData handled by spoof_useragent.js */
+    // userAgentData spoofing moved to dedicated spoof_useragent.js to avoid conflicts
   }
 } catch(e) { console.log('STEALTH: navigator failed:', e); }
 
@@ -245,24 +296,8 @@ try {
       configurable: true
     });
     
-    // Override userAgentData if it exists in worker
-    if (self.navigator.userAgentData) {
-      Object.defineProperty(self.navigator.userAgentData, 'brands', { 
-        get: function() { return EXPECTED_BRANDS; },
-        enumerable: true,
-        configurable: true
-      });
-      Object.defineProperty(self.navigator.userAgentData, 'mobile', { 
-        get: function() { return EXPECTED_MOBILE; },
-        enumerable: true,
-        configurable: true
-      });
-      Object.defineProperty(self.navigator.userAgentData, 'platform', { 
-        get: function() { return EXPECTED_PLATFORM; },
-        enumerable: true,
-        configurable: true
-      });
-    }
+    /* REMOVED: userAgentData handled by spoof_useragent.js */
+    // userAgentData spoofing moved to dedicated spoof_useragent.js to avoid conflicts
   }
 } catch(e) { console.log('STEALTH: self.navigator failed:', e); }
 
@@ -338,43 +373,6 @@ if (typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWo
     });
   } catch(e) { console.log('STEALTH: ServiceWorkerGlobalScope failed:', e); }
 }
-
-// CRITICAL: Override WebGL APIs in worker context
-try {
-  console.log('STEALTH: Setting up WebGL overrides...');
-  
-  // Check if WebGL is available in worker (it might not be)
-  if (typeof OffscreenCanvas !== 'undefined') {
-    console.log('STEALTH: OffscreenCanvas available, setting up WebGL...');
-    
-    // Try to get WebGL context and override getParameter
-    const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
-    const originalGetParameterGL2 = typeof WebGL2RenderingContext !== 'undefined' ? 
-      WebGL2RenderingContext.prototype.getParameter : null;
-    
-    const spoofedGetParameter = function getParameter(parameter) {
-      switch (parameter) {
-        case 37445: // UNMASKED_VENDOR_WEBGL
-          console.log('STEALTH: WebGL vendor requested, returning:', EXPECTED_WEBGL_VENDOR);
-          return EXPECTED_WEBGL_VENDOR;
-        case 37446: // UNMASKED_RENDERER_WEBGL
-          console.log('STEALTH: WebGL renderer requested, returning:', EXPECTED_WEBGL_RENDERER);
-          return EXPECTED_WEBGL_RENDERER;
-        default:
-          return originalGetParameter.call(this, parameter);
-      }
-    };
-    
-    WebGLRenderingContext.prototype.getParameter = spoofedGetParameter;
-    if (originalGetParameterGL2) {
-      WebGL2RenderingContext.prototype.getParameter = spoofedGetParameter;
-    }
-    
-    console.log('STEALTH: WebGL overrides installed');
-  } else {
-    console.log('STEALTH: OffscreenCanvas not available in worker');
-  }
-} catch(e) { console.log('STEALTH: WebGL override failed:', e); }
 
 // CRITICAL: Override Intl APIs to match main thread
 try {
@@ -489,8 +487,6 @@ console.log('STEALTH: Service Worker preamble completed');
   const LANG = LANGS[0] || 'en-US';
   const PLATFORM = '${EXPECTED_PLATFORM}';
   const TIMEZONE = '__TZ__';
-  const WEBGL_VENDOR = '__WEBGL_VENDOR__';
-  const WEBGL_RENDERER = '__WEBGL_RENDERER__';
   
   console.log('STEALTH: Worker preamble executing...', { UA, LANGS, MEM, CORES, PLATFORM });
   
@@ -645,43 +641,6 @@ console.log('STEALTH: Service Worker preamble completed');
       console.log('STEALTH: globalThis.navigator overrides complete');
     }
   } catch(e) { console.log('STEALTH: globalThis.navigator failed:', e); }
-  
-  // CRITICAL: Override WebGL APIs in worker context
-  try {
-    console.log('STEALTH: Setting up WebGL overrides...');
-    
-    // Check if WebGL is available in worker (it might not be)
-    if (typeof OffscreenCanvas !== 'undefined') {
-      console.log('STEALTH: OffscreenCanvas available, setting up WebGL...');
-      
-      // Try to get WebGL context and override getParameter
-      const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
-      const originalGetParameterGL2 = typeof WebGL2RenderingContext !== 'undefined' ? 
-        WebGL2RenderingContext.prototype.getParameter : null;
-      
-      const spoofedGetParameter = function getParameter(parameter) {
-        switch (parameter) {
-          case 37445: // UNMASKED_VENDOR_WEBGL
-            console.log('STEALTH: WebGL vendor requested, returning:', WEBGL_VENDOR);
-            return WEBGL_VENDOR;
-          case 37446: // UNMASKED_RENDERER_WEBGL
-            console.log('STEALTH: WebGL renderer requested, returning:', WEBGL_RENDERER);
-            return WEBGL_RENDERER;
-          default:
-            return originalGetParameter.call(this, parameter);
-        }
-      };
-      
-      WebGLRenderingContext.prototype.getParameter = spoofedGetParameter;
-      if (originalGetParameterGL2) {
-        WebGL2RenderingContext.prototype.getParameter = spoofedGetParameter;
-      }
-      
-      console.log('STEALTH: WebGL overrides installed');
-    } else {
-      console.log('STEALTH: OffscreenCanvas not available in worker');
-    }
-  } catch(e) { console.log('STEALTH: WebGL override failed:', e); }
   
   // CRITICAL: Override Intl APIs to match main thread
   try {
@@ -838,66 +797,6 @@ console.log('STEALTH: Service Worker preamble completed');
 
 const touchEvents = __TOUCH_JS__;
 
-/* Navigator.userAgentData */
-if (navigator.userAgentData) {
-  const brands = [{brand: '__BRAND__', version: '__BRAND_V__'}];
-  Object.defineProperty(navigator.userAgentData, 'brands', { get: () => brands });
-  Object.defineProperty(navigator.userAgentData, 'mobile', { get: () => __MOBILE__ });
-  Object.defineProperty(navigator.userAgentData, 'platform', { get: () => '__PLATFORM__' });
-  
-  const highEntropyHints = {
-    architecture: '__ARCH__',
-    bitness: '__BITNESS__',
-    brands: brands,
-    mobile: __MOBILE__,
-    model: '__MODEL__',
-    platform: '__PLATFORM__',
-    platformVersion: '__PLATFORM_VERSION__',
-    uaFullVersion: '__UA_FULL_VERSION__',
-    wow64: __WOW64__
-  };
-  
-  const originalGetHighEntropyValues = navigator.userAgentData.getHighEntropyValues;
-  navigator.userAgentData.getHighEntropyValues = async function(hints) {
-    const result = {};
-    for (const hint of hints || []) {
-      if (highEntropyHints.hasOwnProperty(hint)) {
-        result[hint] = highEntropyHints[hint];
-      }
-    }
-    return result;
-  };
-}
-
-/* WebGL vendor + renderer → more realistic pairs */
-(() => {
-  try {
-    const getParameter = WebGLRenderingContext.prototype.getParameter;
-    const getParameterWGL2 = WebGL2RenderingContext.prototype.getParameter;
-    
-    const spoofedGetParameter = function getParameter(parameter) {
-      switch (parameter) {
-        case 37445: // UNMASKED_VENDOR_WEBGL
-          return '__WEBGL_VENDOR__';
-        case 37446: // UNMASKED_RENDERER_WEBGL
-          return '__WEBGL_RENDERER__';
-        default:
-          return getParameter.call(this, parameter);
-      }
-    };
-    
-    // Apply to both contexts
-    WebGLRenderingContext.prototype.getParameter = spoofedGetParameter;
-    if (typeof WebGL2RenderingContext !== 'undefined') {
-      WebGL2RenderingContext.prototype.getParameter = spoofedGetParameter;
-    }
-  } catch (err) {
-    console.warn('[Stealth] WebGL patching failed:', err);
-  }
-})();
-
-
-
 /* deep-stealth (chromium) – final */
 (() => {
   try {
@@ -905,26 +804,8 @@ if (navigator.userAgentData) {
     delete Navigator.prototype.webdriver;
     delete navigator.webdriver;
 
-    /* 2 – userAgentData */
-    const uaData = {
-      brands: [{ brand: '__BRAND__', version: '__BRAND_V__' }],
-      platform: '__PLATFORM__',
-      mobile: __MOBILE__,
-      getHighEntropyValues: async (hints) => {
-        const src = {
-          architecture: '__ARCH__',
-          bitness: '__BITNESS__',
-          model: '__MODEL__',
-          platformVersion: '__PLATFORM_VERSION__',
-          uaFullVersion: '__UA_FULL_VERSION__',
-          wow64: __WOW64__
-        };
-        const out = {};
-        for (const h of hints) if (src[h] !== undefined) out[h] = src[h];
-        return out;
-      }
-    };
-    Object.defineProperty(navigator, 'userAgentData', { get: () => uaData });
+    /* 2 – REMOVED: userAgentData handled by spoof_useragent.js */
+    // userAgentData spoofing moved to dedicated spoof_useragent.js to avoid conflicts
 
     /* 3 – chrome.runtime stub */
     if (!('chrome' in window)) window.chrome = { runtime: {} };
@@ -959,93 +840,9 @@ if (navigator.userAgentData) {
         };
       };
     }
-                
-    /* 4 – WebGL spoof */
-    const SPOOF_VENDOR   = '__WEBGL_VENDOR__';
-    const SPOOF_RENDERER = '__WEBGL_RENDERER__';
-    const CONSTS = {
-      VENDOR:            0x1F00,
-      RENDERER:          0x1F01,
-      UNMASKED_VENDOR:   0x9245,
-      UNMASKED_RENDERER: 0x9246,
-    };
 
-    ['WebGLRenderingContext','WebGL2RenderingContext'].forEach((ctxName) => {
-      const proto = window[ctxName]?.prototype;
-      if (!proto) return;
-
-      /* Advanced WebGL spoofing - avoid Proxy detection */
-      const nativeGet = proto.getParameter;
-      
-      // Method: Function replacement with native toString preservation
-      const spoofedGetParameter = function getParameter(parameter) {
-        switch (parameter) {
-          case CONSTS.VENDOR:
-          case CONSTS.UNMASKED_VENDOR:
-            return SPOOF_VENDOR;
-          case CONSTS.RENDERER:
-          case CONSTS.UNMASKED_RENDERER:
-            return SPOOF_RENDERER;
-          default:
-            return nativeGet.call(this, parameter);
-        }
-      };
-
-      // Copy all properties from original function to avoid detection
-      Object.setPrototypeOf(spoofedGetParameter, nativeGet);
-      Object.defineProperty(spoofedGetParameter, 'toString', {
-        value: () => nativeGet.toString(),
-        configurable: true
-      });
-      Object.defineProperty(spoofedGetParameter, 'name', {
-        value: 'getParameter',
-        configurable: true
-      });
-      
-      proto.getParameter = spoofedGetParameter;
-
-
-    });
-
-
-
-    /* 5 – Advanced canvas fingerprinting protection */
-    const nativeToDataURL = HTMLCanvasElement.prototype.toDataURL;
-    
-    // Method: Minimal noise injection with function cloning
-    const spoofedToDataURL = function toDataURL() {
-      // Add minimal noise before export
-      try {
-        const ctx = this.getContext('2d');
-        if (ctx) {
-          const imageData = ctx.getImageData(0, 0, Math.min(10, this.width), Math.min(10, this.height));
-          const data = imageData.data;
-          
-          // Minimal pixel manipulation - less detectable than fillRect
-          for (let i = 0; i < data.length; i += 4) {
-            if (Math.random() < 0.1) { // Only modify 10% of pixels
-              data[i] = (data[i] + Math.floor(Math.random() * 3) - 1) & 255;
-            }
-          }
-          ctx.putImageData(imageData, 0, 0);
-        }
-      } catch (_) {}
-      
-      return nativeToDataURL.apply(this, arguments);
-    };
-    
-    // Advanced function cloning to avoid detection
-    Object.setPrototypeOf(spoofedToDataURL, nativeToDataURL);
-    Object.defineProperty(spoofedToDataURL, 'toString', {
-      value: () => nativeToDataURL.toString(),
-      configurable: true
-    });
-    Object.defineProperty(spoofedToDataURL, 'name', {
-      value: 'toDataURL',
-      configurable: true
-    });
-    
-    HTMLCanvasElement.prototype.toDataURL = spoofedToDataURL;
+    /* 5 – REMOVED: Canvas fingerprinting handled by canvas_webgl_noise.js */
+    // Canvas spoofing moved to dedicated canvas_webgl_noise.js to avoid conflicts
 
     /* 6 – mediaDevices fallback */
     if (navigator.mediaDevices?.enumerateDevices) {
@@ -1059,6 +856,8 @@ if (navigator.userAgentData) {
         ];
       };
     }
-  } catch (_err) {}
+  } catch (err) {
+    console.warn('[STEALTH] Deep stealth patch failed:', err);
+  }
 })();
 

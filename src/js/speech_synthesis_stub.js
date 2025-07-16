@@ -1,35 +1,82 @@
+// Speech Synthesis API stub with proper error handling per CreepJS research
 (() => {
-  const voices = [
-    { voiceURI: 'Google Deutsch',              name: 'Google Deutsch',              lang: 'de-DE',    localService: true, default: false },
-    { voiceURI: 'Google US English',           name: 'Google US English',           lang: 'en-US',    localService: true, default: true  },
-    { voiceURI: 'Google UK English Female',    name: 'Google UK English Female',    lang: 'en-GB',    localService: true, default: false },
-    { voiceURI: 'Google UK English Male',      name: 'Google UK English Male',      lang: 'en-GB',    localService: true, default: false },
-    { voiceURI: 'Google español',              name: 'Google español',              lang: 'es-ES',    localService: true, default: false },
-    { voiceURI: 'Google español de Estados Unidos', name: 'Google español de Estados Unidos', lang: 'es-US', localService: true, default: false },
-    { voiceURI: 'Google français',             name: 'Google français',             lang: 'fr-FR',    localService: true, default: false },
-    { voiceURI: 'Google हिन्दी',               name: 'Google हिन्दी',               lang: 'hi-IN',    localService: true, default: false },
-    { voiceURI: 'Google Bahasa Indonesia',     name: 'Google Bahasa Indonesia',     lang: 'id-ID',    localService: true, default: false },
-    { voiceURI: 'Google italiano',             name: 'Google italiano',             lang: 'it-IT',    localService: true, default: false },
-    { voiceURI: 'Google 日本語',                 name: 'Google 日本語',                 lang: 'ja-JP',    localService: true, default: false },
-    { voiceURI: 'Google 한국의',                name: 'Google 한국의',                lang: 'ko-KR',    localService: true, default: false },
-    { voiceURI: 'Google Nederlands',           name: 'Google Nederlands',           lang: 'nl-NL',    localService: true, default: false },
-    { voiceURI: 'Google polski',               name: 'Google polski',               lang: 'pl-PL',    localService: true, default: false },
-    { voiceURI: 'Google português do Brasil',  name: 'Google português do Brasil',  lang: 'pt-BR',    localService: true, default: false },
-    { voiceURI: 'Google русский',              name: 'Google русский',              lang: 'ru-RU',    localService: true, default: false },
-    { voiceURI: 'Google 普通话（中国大陆）',        name: 'Google 普通话（中国大陆）',        lang: 'zh-CN',   localService: true, default: false },
-    { voiceURI: 'Google 粤語（香港）',             name: 'Google 粤語（香港）',             lang: 'zh-HK',   localService: true, default: false },
-    { voiceURI: 'Google 國語（臺灣）',             name: 'Google 國語（臺灣）',             lang: 'zh-TW',   localService: true, default: false }
-  ];
+  'use strict';
 
-  /* clone the native getVoices so .toString() still looks native */
-  const nativeGetVoices = window.speechSynthesis?.getVoices;
-  if (!nativeGetVoices) return;              // API missing (Firefox / WebKit)
-
-  function getVoices() { return voices; }
-
-  Object.setPrototypeOf(getVoices, nativeGetVoices);
-  Object.defineProperty(getVoices, 'name',      { value: 'getVoices', configurable: true });
-  Object.defineProperty(getVoices, 'toString',  { value: () => nativeGetVoices.toString(), configurable: true });
-
-  window.speechSynthesis.getVoices = getVoices;
+  /* speechSynthesis stub with native-like behavior */
+  if ('speechSynthesis' in window && window.speechSynthesis) {
+    if (window.speechSynthesis.getVoices && !window.speechSynthesis.getVoices.__isPatched) {
+      const originalGetVoices = window.speechSynthesis.getVoices;
+      
+      const newImpl = function getVoices() {
+        // Per report: handle context checking like native function
+        // Native getVoices should throw on wrong context
+        if (this !== window.speechSynthesis && this !== speechSynthesis) {
+          throw new TypeError("Illegal invocation");
+        }
+        
+        // Return realistic voice list (Windows-style voices for consistency)
+        return [
+          {
+            default: true,
+            lang: 'en-US',
+            localService: true,
+            name: 'Microsoft David Desktop - English (United States)',
+            voiceURI: 'Microsoft David Desktop - English (United States)'
+          },
+          {
+            default: false,
+            lang: 'en-GB', 
+            localService: true,
+            name: 'Microsoft Hazel Desktop - English (Great Britain)',
+            voiceURI: 'Microsoft Hazel Desktop - English (Great Britain)'
+          },
+          {
+            default: false,
+            lang: 'en-US',
+            localService: true,
+            name: 'Microsoft Zira Desktop - English (United States)',
+            voiceURI: 'Microsoft Zira Desktop - English (United States)'
+          }
+        ];
+      };
+      
+      // Preserve native function characteristics
+      Object.setPrototypeOf(newImpl, Object.getPrototypeOf(originalGetVoices));
+      Object.defineProperty(newImpl, 'name', { 
+        value: originalGetVoices.name, 
+        configurable: true 
+      });
+      Object.defineProperty(newImpl, 'length', { 
+        value: originalGetVoices.length, 
+        configurable: true 
+      });
+      Object.defineProperty(newImpl, 'toString', { 
+        value: function() { return originalGetVoices.toString(); },
+        configurable: true 
+      });
+      
+      // Make function not constructable (like native)
+      Object.defineProperty(newImpl, 'prototype', {
+        value: undefined,
+        writable: false
+      });
+      
+      Object.defineProperty(newImpl, '__isPatched', {
+        value: true,
+        writable: false,
+        enumerable: false,
+        configurable: false
+      });
+      
+      // Replace the original function
+      Object.defineProperty(window.speechSynthesis, 'getVoices', {
+        value: newImpl,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      });
+      
+      console.log('[SPEECH] speechSynthesis.getVoices patched with proper error handling');
+    }
+  }
 })();

@@ -30,7 +30,7 @@ except ImportError:
     async_patchright = None  # type: ignore
 
 from .context import create_context
-from .gaterunner import run_gates
+from .spoof_manager import SpoofingManager
 from .resources import (
     handle_request,
     handle_response,
@@ -112,10 +112,31 @@ async def _grab(                     # noqa: C901 – long but linear
     interactive: bool,
 ):
     """Navigate, collect artefacts, then optionally pause for user inspection."""
-    await run_gates(
-        None, context,
-        gates_enabled=gates_enabled, gate_args=gate_args,
-        url=url, resource_request_headers=req_hdrs,
+    
+    # Detect browser engine from user agent if available
+    engine = "chromium"  # Default
+    if gate_args and gate_args.get("UserAgentGate", {}).get("user_agent"):
+        ua = gate_args["UserAgentGate"]["user_agent"]
+        low = ua.lower()
+        if "firefox" in low and "seamonkey" not in low:
+            engine = "firefox"
+        elif "safari" in low and "chrome" not in low and "chromium" not in low:
+            engine = "webkit"
+    
+    # Build gate configuration
+    gate_config = (gate_args or {}).copy()
+    if gates_enabled:
+        gate_config["gates_enabled"] = gates_enabled
+    
+    # Apply spoofing using SpoofingManager
+    spoofing_manager = SpoofingManager()
+    await spoofing_manager.apply_spoofing(
+        page=None,  # Page is created after spoofing setup
+        context=context,
+        gate_config=gate_config,
+        engine=engine,
+        url=url,
+        resource_request_headers=req_hdrs
     )
 
     page = await context.new_page()

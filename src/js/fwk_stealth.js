@@ -1,6 +1,7 @@
 /* fwk-stealth (deep) */
-Object.defineProperty(Intl.DateTimeFormat.prototype, 'resolvedOptions',
-  { value: () => ({ timeZone: '__TZ__' }) });
+/* REMOVED: Intl.DateTimeFormat handled by chromium_stealth.js */
+// Intl.DateTimeFormat spoofing moved to comprehensive chromium_stealth.js to avoid conflicts
+
 Object.defineProperty(navigator, 'vendor', { get: () => '' });
 Object.defineProperty(navigator, 'oscpu', { get: () => undefined });
 Object.defineProperty(navigator, 'buildID', { get: () => undefined });

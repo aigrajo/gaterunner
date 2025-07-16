@@ -4,12 +4,8 @@ from src.clienthints import parse_chromium_ua, parse_chromium_version, parse_chr
 context.py – create a Playwright **BrowserContext** with a JavaScript and
 network fingerprint that consistently matches the supplied User‑Agent string.
 
-Uses *base profiles* instead of picking each hardware trait
-independently.  A base profile is a small template that describes valid
-ranges/pools for RAM, CPU cores, screen size and WebGL strings.  One profile
-is selected per run based on the UA’s OS family and form‑factor, then random
-values are drawn only from that profile – keeping the overall fingerprint
-coherent while still varied.
+Uses the unified spoofing system to orchestrate both HTTP-level and browser-level
+fingerprinting through the gate architecture.
 """
 
 import asyncio
@@ -21,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from functools import lru_cache
 from playwright.async_api import Browser, BrowserContext, Playwright
+
+from src.spoof_manager import SpoofingManager
 
 # ──────────────────────────────
 # Optional: httpagentparser for robust engine detection
@@ -65,44 +63,11 @@ async def _build_apply_stealth():
 
 _apply_stealth = asyncio.run(_build_apply_stealth())
 
-# ──────────────────────────────
-# JS templates & extras
-# ──────────────────────────────
-
-_JS_DIR = Path(__file__).resolve().parent / "js"
-_JS_TEMPLATE_PATH = _JS_DIR / "spoof_useragent.js"
-_EXTRA_STEALTH_PATH = _JS_DIR / "extra_stealth.js"
-_FWK_STEALTH_PATH = _JS_DIR / "fwk_stealth.js"
-_CHROMIUM_STEALTH_PATH = _JS_DIR / "chromium_stealth.js"
-_WEBGL_PATCH_PATH = _JS_DIR / "webgl_patch.js"
-
-_JS_TEMPLATE = _JS_TEMPLATE_PATH.read_text(encoding="utf-8")
-_EXTRA_STEALTH = _EXTRA_STEALTH_PATH.read_text(encoding="utf-8")
-_FWK_STEALTH_TEMPLATE = _FWK_STEALTH_PATH.read_text(encoding="utf-8")
-_CHROMIUM_STEALTH_TEMPLATE = _CHROMIUM_STEALTH_PATH.read_text(encoding="utf-8")
-_WEBGL_PATCH_TEMPLATE = _WEBGL_PATCH_PATH.read_text(encoding="utf-8")
-
-# General stealth – pruned list (headed window makes most old patches redundant)
-_EXTRA_JS_FILES = [
-    "font_mask.js",
-    "webrtc_leak_block.js",
-    "network_info_stub.js",  # only used for mobile‑UA profiles
-    "performance_timing.js",
-    "incognito.js",
-    "speech_synthesis_stub.js",
-    "ad_env_patch.js"
-]
-
-_EXTRA_JS_SNIPPETS = {
-    name: (_JS_DIR / name).read_text("utf-8") for name in _EXTRA_JS_FILES
-}
-
 _DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/125.0.0.0 Safari/537.36"
 )
-
 
 _BASE_PROFILES_PATH = Path("src/data/base_profiles.json")
 
@@ -136,51 +101,13 @@ def _ua_os_family(ua: str) -> str:
         return "chromeos"
     return "linux"
 
-
 def _select_base_profile(ua: str) -> Dict[str, Any]:
     os_family = _ua_os_family(ua)
     _BASE_PROFILES = _load_base_profiles()
     candidates = [p for p in _BASE_PROFILES if os_family in p["os"]]
     if not candidates:
-        candidates = _BASE_PROFILES  # fallback – shouldn’t happen
+        candidates = _BASE_PROFILES  # fallback – shouldn't happen
     return random.choice(candidates)
-
-
-# Keep the original detailed WebGL pools for fallback use.
-_WEBGL_BY_OS = {
-    "windows": (
-        ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060/PCIe/SSE2"),
-        ("NVIDIA Corporation", "NVIDIA GeForce GTX 1060/PCIe/SSE2"),
-        ("NVIDIA Corporation", "NVIDIA GeForce GTX 1650/PCIe/SSE2"),
-        ("Intel", "Intel(R) HD Graphics 530"),
-        ("Intel", "Intel(R) Iris(R) Xe Graphics"),
-        ("AMD", "AMD Radeon RX 580"),
-        ("AMD", "AMD Radeon RX 6700 XT"),
-    ),
-    "mac": (
-        ("Apple Inc.", "Apple M1"),
-        ("Apple Inc.", "Apple M2"),
-        ("Apple Inc.", "AMD Radeon Pro 560X"),
-    ),
-    "linux": (
-        ("Intel", "Mesa Intel(R) UHD Graphics 620 (KBL GT2)"),
-        ("AMD", "AMD Radeon RX 570 Series (POLARIS10, DRM 3.35.0, 5.4.0-42-generic, LLVM 10.0.0)"),
-        ("NVIDIA Corporation", "NVIDIA GeForce RTX 3060/PCIe/SSE2"),
-    ),
-}
-
-
-def _pick_webgl_pair(ua: str) -> Tuple[str, str]:
-    """Fallback WebGL pair based on UA‑detected OS."""
-    fam = _ua_os_family(ua)
-    if fam == "mac":
-        pool = _WEBGL_BY_OS["mac"]
-    elif fam == "windows":
-        pool = _WEBGL_BY_OS["windows"]
-    else:
-        pool = _WEBGL_BY_OS["linux"]
-    return random.choice(pool)
-
 
 # ──────────────────────────────
 # Heuristic engine detection
@@ -204,7 +131,6 @@ def _engine_from_ua(ua: str) -> str:
         return "webkit"
     return "chromium"
 
-
 def _locale_from_gate(gate_args: Dict[str, Any]) -> Tuple[str, Tuple[str, ...]]:
     raw = gate_args.get("LanguageGate", {}).get("accept_language") if gate_args else None
     if not raw:
@@ -212,24 +138,8 @@ def _locale_from_gate(gate_args: Dict[str, Any]) -> Tuple[str, Tuple[str, ...]]:
     primary = raw.split(",", 1)[0].strip()
     return primary, (primary, primary.split("-", 1)[0])
 
-
 def _timezone_from_gate(gate_args: Dict[str, Any]) -> str:
     return gate_args.get("GeolocationGate", {}).get("timezone_id", "UTC")
-
-
-# ──────────────────────────────
-# JS patch builder for Firefox / WebKit
-# ──────────────────────────────
-
-def _fwk_js_patch(languages: Tuple[str, ...], tz: str, ua: str) -> str:
-    lang_js = json.dumps(list(languages))
-    return (
-        _FWK_STEALTH_TEMPLATE
-        .replace("__LANG_JS__", lang_js)
-        .replace("__TZ__", tz)
-        .replace("__USER_AGENT__", ua)
-    )
-
 
 # ──────────────────────────────
 # Public API
@@ -244,7 +154,7 @@ async def create_context(
     headless: bool = True,
     **extra_ctx_kwargs,
 ) -> Tuple[Browser, BrowserContext]:
-    """Launch a browser context whose surfaces align with the UA if spoofing is requested."""
+    """Launch a browser context with unified spoofing applied via the gate system."""
     gate_args = gate_args or {}
     spoof_ua = gate_args.get("UserAgentGate") is not None
     ua = gate_args["UserAgentGate"]["user_agent"] if spoof_ua else ""
@@ -263,21 +173,24 @@ async def create_context(
             rand_cores = random.choice(base["cores"])
             screen_w, screen_h = random.choice(base["screen"])
             webgl_vendor, webgl_renderer = (
-                random.choice(base["webgl"]) if base.get("webgl") else _pick_webgl_pair(ua)
+                random.choice(base["webgl"]) if base.get("webgl") else ("Intel", "Intel(R) HD Graphics 530")
             )
-
-            if engine == "chromium":
-                from src.clienthints import extract_high_entropy_hints
-                entropy = extract_high_entropy_hints(ua)
-                brand, brand_v = parse_chromium_ua(ua)
-                chromium_v = parse_chromium_version(ua)
-                mobile_flag = "mobile" in ua.lower()
-            else:
-                entropy = {}
-                brand = brand_v = chromium_v = ""
-                mobile_flag = False
+            
+            # Map base profile to connection profile
+            conn_profile_map = {
+                "desk_low": "desk_low",
+                "desk_mid": "desk_mid", 
+                "desk_high": "desk_high",
+                "mac_notch": "mac_notch",
+                "chrome_book": "chrome_book",
+                "mobile_high": "mobile_high",
+            }
+            connection_profile = conn_profile_map.get(base["id"], "wifi")
         else:
             screen_w, screen_h = 1280, 720  # Default fallback values
+            rand_mem = 8
+            webgl_vendor, webgl_renderer = "Intel", "Intel(R) HD Graphics 530"
+            connection_profile = "wifi"
 
         launch_args = {
             "headless": headless,
@@ -309,93 +222,66 @@ async def create_context(
         context = await browser.new_context(**ctx_args)
 
         if spoof_ua:
-            # Add this mapping right after base = _select_base_profile(ua)
-            conn_profile_map = {
-                "desk_low": ("wifi", "3g", 5, 150, "false"),
-                "desk_mid": ("wifi", "4g", 20, 80, "false"),
-                "desk_high": ("ethernet", "4g", 50, 30, "false"),
-                "mac_notch": ("wifi", "4g", 25, 60, "false"),
-                "chrome_book": ("wifi", "3g", 10, 120, "false"),
-                "mobile_high": ("cellular", "5g", 20, 100, "true"),
-            }
-
-            conn_type, eff_type, downlink, rtt, save_data = conn_profile_map.get(base["id"],
-                                                                                 ("wifi", "4g", 10, 100, "false"))
-            net_info_patch = _EXTRA_JS_SNIPPETS["network_info_stub.js"]
-            net_info_patch = (
-                net_info_patch
-                .replace("__CONN_TYPE__", f'"{conn_type}"')
-                .replace("__EFFECTIVE_TYPE__", f'"{eff_type}"')
-                .replace("__DOWNLINK__", str(downlink))
-                .replace("__RTT__", str(rtt))
-                .replace("__SAVE_DATA__", save_data)
-            )
-            await context.add_init_script(net_info_patch)
-
-        if spoof_ua:
-            if engine == "chromium":
-                await _apply_stealth(context)
-
-                lang_js = json.dumps(list(languages))
-                touch_js = (
-                    "Object.defineProperty(window, 'ontouchstart', {value: null});"
-                    if mobile_flag
-                    else "if ('ontouchstart' in window) {} else Object.defineProperty(window, 'ontouchstart', {value: null});"
-                )
-
-                js_script = _JS_TEMPLATE.format(
-                    chromium_v=chromium_v or "",
-                    brand=brand,
-                    brand_v=brand_v,
-                    architecture=entropy.get("architecture", "x86"),
-                    bitness=entropy.get("bitness", "64"),
-                    wow64=str(bool(entropy.get("wow64", False))).lower(),
-                    model=entropy.get("model", ""),
-                    mobile=str(mobile_flag).lower(),
-                    platform=entropy.get("platform", "Win32"),
-                    platformVersion=entropy.get("platformVersion", "15.0"),
-                    uaFullVersion=parse_chromium_full_version(ua) or chromium_v,
-                )
-
-                chromium_patch = (
-                    _CHROMIUM_STEALTH_TEMPLATE
-                    .replace("__LANG_JS__", lang_js)
-                    .replace("__TOUCH_JS__", touch_js)
-                    .replace("__BRAND__", brand)
-                    .replace("__BRAND_V__", brand_v)
-                    .replace("__PLATFORM__", entropy.get("platform", "Win32"))
-                    .replace("__MOBILE__", str(mobile_flag).lower())
-                    .replace("__ARCH__", entropy.get("architecture", "x86"))
-                    .replace("__BITNESS__", entropy.get("bitness", "64"))
-                    .replace("__MODEL__", entropy.get("model", ""))
-                    .replace("__PLATFORM_VERSION__", entropy.get("platformVersion", "15.0"))
-                    .replace("__UA_FULL_VERSION__", parse_chromium_full_version(ua) or chromium_v)
-                    .replace("__WOW64__", str(bool(entropy.get("wow64", False))).lower())
-                    .replace("__WEBGL_VENDOR__", webgl_vendor)
-                    .replace("__WEBGL_RENDERER__", webgl_renderer)
-                    .replace("__USER_AGENT__", ua)
-                    .replace("__RAND_MEM__", str(rand_mem))
-                    .replace("__TZ__", tz_id)
-                )
-
-                webgl_patch = (
-                    _WEBGL_PATCH_TEMPLATE
-                    .replace("__WEBGL_VENDOR__", webgl_vendor)
-                    .replace("__WEBGL_RENDERER__", webgl_renderer)
-                )
-
-                await context.add_init_script(js_script)
-                await context.add_init_script(chromium_patch)
-                await context.add_init_script(_EXTRA_STEALTH)
-                await context.add_init_script(webgl_patch)
-
+            # Apply unified spoofing using the gate system
+            spoofing_manager = SpoofingManager()
+            
+            # Enhanced gate configuration with additional context
+            enhanced_gate_args = gate_args.copy()
+            
+            # Add network configuration if not present
+            if "NetworkGate" not in enhanced_gate_args:
+                enhanced_gate_args["NetworkGate"] = {"connection_profile": connection_profile}
+            
+            # Add WebGL configuration - always ensure WebGLGate has proper config
+            if "WebGLGate" not in enhanced_gate_args:
+                enhanced_gate_args["WebGLGate"] = {
+                    "webgl_vendor": webgl_vendor,
+                    "webgl_renderer": webgl_renderer,
+                    "user_agent": ua
+                }
             else:
-                js_script = _fwk_js_patch(languages, tz_id, ua)
-                await context.add_init_script(js_script)
-                await context.add_init_script(_EXTRA_STEALTH)
-
-            for body in _EXTRA_JS_SNIPPETS.values():
-                await context.add_init_script(body)
+                # Ensure user_agent is passed for auto-detection if vendor/renderer not explicit
+                webgl_config = enhanced_gate_args["WebGLGate"]
+                if "user_agent" not in webgl_config:
+                    webgl_config["user_agent"] = ua
+                # Use context-detected values as fallbacks
+                if "webgl_vendor" not in webgl_config:
+                    webgl_config["webgl_vendor"] = webgl_vendor
+                if "webgl_renderer" not in webgl_config:
+                    webgl_config["webgl_renderer"] = webgl_renderer
+            
+            # Add timezone to UserAgentGate for template variables
+            if "UserAgentGate" in enhanced_gate_args:
+                enhanced_gate_args["UserAgentGate"]["timezone_id"] = tz_id
+                enhanced_gate_args["UserAgentGate"]["rand_mem"] = rand_mem
+                # Pass language information to UserAgentGate for template vars
+                if "LanguageGate" in enhanced_gate_args:
+                    lang_config = enhanced_gate_args["LanguageGate"]
+                    enhanced_gate_args["UserAgentGate"]["accept_language"] = (
+                        lang_config.get("accept_language") or lang_config.get("language")
+                    )
+            
+            # Add timezone and user agent to LanguageGate for template variables
+            if "LanguageGate" in enhanced_gate_args:
+                enhanced_gate_args["LanguageGate"]["timezone_id"] = tz_id
+                enhanced_gate_args["LanguageGate"]["user_agent"] = ua
+            
+            # Debug: Show final gate configuration
+            print(f"[DEBUG] Enhanced gate config: {enhanced_gate_args}")
+            
+            # Apply unified spoofing (no page yet, will be set later)
+            await spoofing_manager.apply_spoofing(
+                page=None,
+                context=context,
+                gate_config=enhanced_gate_args,
+                engine=engine,
+                url=None,
+                resource_request_headers=None
+            )
+        
+        # Apply playwright-stealth if available (Chromium only)
+        if engine == "chromium":
+            await _apply_stealth(context)
 
         return browser, context
 
@@ -403,8 +289,6 @@ async def create_context(
         if browser:
             await browser.close()
         raise e
-
-
 
 # ──────────────────────────────────────────────────────────
 # quick manual CLI test
