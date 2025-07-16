@@ -31,6 +31,7 @@ except ImportError:
 
 from .context import create_context
 from .spoof_manager import SpoofingManager
+from .utils import ResourceData, Config
 from .resources import (
     handle_request,
     handle_response,
@@ -74,7 +75,7 @@ async def _safe_screenshot(page, out_dir: str) -> None:
 
 
 
-async def _save_download(dl, out_dir: str, stats: dict):
+async def _save_download(dl, out_dir: str, resources: ResourceData):
     """Save a Playwright Download, avoiding duplicates from the CDP stream hook."""
     name = dl.suggested_filename or _fname_from_url(dl.url, "")
     dst  = Path(out_dir) / "downloads" / name
@@ -86,10 +87,10 @@ async def _save_download(dl, out_dir: str, stats: dict):
 
     try:
         await dl.save_as(dst)
-        stats["downloads"] += 1
+        resources.stats["downloads"] += 1
         print(f"[DOWNLOAD] Saved: {dst.name}")
     except Exception as exc:
-        stats["errors"] += 1
+        resources.stats["errors"] += 1
         print(f"[WARN] Failed to save {name}: {type(exc).__name__}: {exc}")
 
 
@@ -99,24 +100,18 @@ async def _grab(                     # noqa: C901 – long but linear
     context,
     url: str,
     out_dir: str,
-    res_urls: set[str],
-    req_hdrs: dict,
-    resp_hdrs: dict,
-    url_map: dict,
-    stats: dict,
+    resources: ResourceData,
+    config: Config,
     *,
     pause_ms: int,
     max_scrolls: int | None,
-    gates_enabled,
-    gate_args,
-    interactive: bool,
 ):
     """Navigate, collect artefacts, then optionally pause for user inspection."""
     
     # Detect browser engine from user agent if available
     engine = "chromium"  # Default
-    if gate_args and gate_args.get("UserAgentGate", {}).get("user_agent"):
-        ua = gate_args["UserAgentGate"]["user_agent"]
+    if config.gate_args and config.gate_args.get("UserAgentGate", {}).get("user_agent"):
+        ua = config.gate_args["UserAgentGate"]["user_agent"]
         low = ua.lower()
         if "firefox" in low and "seamonkey" not in low:
             engine = "firefox"
@@ -124,9 +119,9 @@ async def _grab(                     # noqa: C901 – long but linear
             engine = "webkit"
     
     # Build gate configuration
-    gate_config = (gate_args or {}).copy()
-    if gates_enabled:
-        gate_config["gates_enabled"] = gates_enabled
+    gate_config = config.gate_args.copy()
+    if config.gates_enabled:
+        gate_config["gates_enabled"] = config.gates_enabled
     
     # Apply spoofing using SpoofingManager
     spoofing_manager = SpoofingManager()
@@ -136,7 +131,7 @@ async def _grab(                     # noqa: C901 – long but linear
         gate_config=gate_config,
         engine=engine,
         url=url,
-        resource_request_headers=req_hdrs
+        resource_request_headers=resources.request_headers
     )
 
     page = await context.new_page()
@@ -146,7 +141,7 @@ async def _grab(                     # noqa: C901 – long but linear
     if is_chromium:
         await enable_cdp_download_interceptor(
             page, Path(out_dir) / "downloads",
-            url_map, resp_hdrs, stats,
+            resources.url_to_file, resources.response_headers, resources.stats,
         )
         dump_cdp = await attach_cdp_logger(page, out_dir)
     else:
@@ -154,12 +149,12 @@ async def _grab(                     # noqa: C901 – long but linear
         dump_cdp = lambda *_, **__: None
 
     # network hooks
-    page.on("request",  lambda r: asyncio.create_task(handle_request(r, res_urls)))
+    page.on("request",  lambda r: asyncio.create_task(handle_request(r, resources)))
     page.on("response", lambda r: asyncio.create_task(
-        handle_response(r, out_dir, url_map, resp_hdrs, stats)))
+        handle_response(r, out_dir, resources)))
     downloads: list[asyncio.Task] = []
     page.on("download", lambda dl: downloads.append(
-        asyncio.create_task(_save_download(dl, out_dir, stats))))
+        asyncio.create_task(_save_download(dl, out_dir, resources))))
 
     # navigation (guarded)
     print(f"[INFO] Loading page: {url}")
@@ -175,20 +170,20 @@ async def _grab(                     # noqa: C901 – long but linear
     os.makedirs(out_dir, exist_ok=True)
     if not page.is_closed():
         await _safe_screenshot(page, out_dir)
-    save_json(os.path.join(out_dir, "http_request_headers.json"), req_hdrs)
-    save_json(os.path.join(out_dir, "http_response_headers.json"), resp_hdrs)
+    save_json(os.path.join(out_dir, "http_request_headers.json"), resources.request_headers)
+    save_json(os.path.join(out_dir, "http_response_headers.json"), resources.response_headers)
     save_json(os.path.join(out_dir, "cookies.json"), await context.cookies())
 
     # optional manual phase
-    if interactive and not page.is_closed():
+    if config.interactive and not page.is_closed():
         print("[INFO] Visible window – interact freely. Close the tab to continue.")
         try:
             await page.wait_for_event("close", timeout=86_400_000)  # 24 h
         except (KeyboardInterrupt, asyncio.TimeoutError):
             pass
 
-    print(f"Captured {len(res_urls)} resources | "
-          f"downloads={stats['downloads']} warnings={stats['warnings']} errors={stats['errors']}")
+    print(f"Captured {len(resources.urls)} resources | "
+          f"downloads={resources.stats['downloads']} warnings={resources.stats['warnings']} errors={resources.stats['errors']}")
 
 
 
@@ -196,18 +191,10 @@ async def _grab(                     # noqa: C901 – long but linear
 async def save_page(
     url: str,
     out_dir: str,
-    *,
-    gates_enabled: dict | None = None,
-    gate_args: dict | None = None,
-    proxy: dict | None = None,
-    engine: str = "auto",          # auto | playwright | camoufox | patchright
-    launch_headless: bool = False, # Playwright launch flag (always False for realism)
-    interactive: bool = False,     # True ⇢ real window, False ⇢ Xvfb-hidden
-    timeout_sec: int = 30,
+    resources: ResourceData,
+    config: Config,
 ):
     """Decide which engine to use, then delegate to *_grab*."""
-    gates_enabled = gates_enabled or {}
-    gate_args     = gate_args or {}
 
     # ----- output dir slug -----
     parsed = urlparse(url)
@@ -217,28 +204,23 @@ async def save_page(
     slug = _make_slug(netloc, path)
     out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}")
 
-    res_urls: set[str] = set()
-    stats = {"warnings": 0, "errors": 0, "downloads": 0}
-    req_hdrs, resp_hdrs, url_map = {}, {}, {}
-    pause_ms, max_scrolls = 150, gate_args.get("max_scrolls")
+    pause_ms, max_scrolls = 150, config.gate_args.get("max_scrolls")
 
     async def _run(br, ctx):
         try:
             await _grab(
                 br, ctx, url, out_dir,
-                res_urls, req_hdrs, resp_hdrs, url_map, stats,
+                resources, config,
                 pause_ms=pause_ms, max_scrolls=max_scrolls,
-                gates_enabled=gates_enabled, gate_args=gate_args,
-                interactive=interactive
             )
         finally:
             with suppress(Exception):
                 await br.close()
 
-    ua               = gate_args.get("UserAgentGate", {}).get("ua_arg", "")
-    want_camoufox    = engine == "camoufox"
-    want_patchright  = engine == "patchright"
-    force_playwright = engine == "playwright"
+    ua               = config.gate_args.get("UserAgentGate", {}).get("ua_arg", "")
+    want_camoufox    = config.engine == "camoufox"
+    want_patchright  = config.engine == "patchright"
+    force_playwright = config.engine == "playwright"
 
     # ---------- CamouFox branch ----------
     orig_display = os.environ.get("DISPLAY")          # preserve outer Xvfb
@@ -246,11 +228,11 @@ async def save_page(
             (want_camoufox or ("firefox" in ua.lower() and not want_patchright))):
         try:
             print("[INFO] Launching CamouFox")
-            camou_headless = True if not interactive else False
+            camou_headless = True if not config.interactive else False
             async with AsyncCamoufox(headless=camou_headless,
-                                     proxy=proxy, geoip=True) as br:
+                                     proxy=config.proxy, geoip=True) as br:
                 ctx = await br.new_context(accept_downloads=True)
-                await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
+                await asyncio.wait_for(_run(br, ctx), timeout=config.timeout_sec)
                 return
         except Exception as e:
             print(f"[WARN] CamouFox failed: {e}")
@@ -259,7 +241,7 @@ async def save_page(
                 os.environ["DISPLAY"] = orig_display
 
             # explicit --engine camoufox → do NOT fall back; bubble up
-            if engine != "auto":
+            if config.engine != "auto":
                 raise
 
             # auto mode only: try next engine
@@ -271,10 +253,10 @@ async def save_page(
             print("[INFO] Launching Patchright")
             async with async_patchright() as p:
                 br, ctx = await create_context(
-                    p, gate_args, proxy=proxy,
-                    accept_downloads=True, headless=launch_headless
+                    p, config.gate_args, proxy=config.proxy,
+                    accept_downloads=True, headless=config.headless
                 )
-                await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
+                await asyncio.wait_for(_run(br, ctx), timeout=config.timeout_sec)
                 return
         except Exception as e:
             print(f"[WARN] Patchright failed: {e}")
@@ -283,7 +265,7 @@ async def save_page(
     # ---------- Stock Playwright ----------
     async with async_pw() as p:
         br, ctx = await create_context(
-            p, gate_args, proxy=proxy,
-            accept_downloads=True, headless=launch_headless
+            p, config.gate_args, proxy=config.proxy,
+            accept_downloads=True, headless=config.headless
         )
-        await asyncio.wait_for(_run(br, ctx), timeout=timeout_sec)
+        await asyncio.wait_for(_run(br, ctx), timeout=config.timeout_sec)

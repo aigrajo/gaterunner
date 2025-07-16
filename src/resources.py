@@ -157,11 +157,11 @@ def _looks_like_download(ct: str, cd: str | None) -> bool:
 
 # ───────────────────────── hooks ──────────────────────────
 
-async def handle_request(request, res_urls: set[str]):
+async def handle_request(request, resources):
     """Track network requests for static resources.
 
     @param request (playwright.Request): The intercepted network request object.
-    @param res_urls (set[str]): A set to collect the URLs of requested resources.
+    @param resources (ResourceData): Resource tracking data structure.
 
     @return None
     """
@@ -170,28 +170,24 @@ async def handle_request(request, res_urls: set[str]):
         "document", "stylesheet", "script", "image", "font", "media", "other",
     }:
         print(f"[RESOURCE] {request.resource_type.upper()}: {request.url}")
-        res_urls.add(request.url)
+        resources.urls.add(request.url)
 
 
 async def handle_response(
     response,
     out_dir: str,
-    url_map: dict[str, str],
-    resp_hdrs: dict[str, dict],
-    stats: dict,
+    resources,
 ):
     """Save qualifying network responses to disk and update metadata.
 
     @param response (playwright.Response): The intercepted network response.
     @param out_dir (str): Path to the output directory for saved resources.
-    @param url_map (dict[str, str]): Maps each URL to its saved relative file path.
-    @param resp_hdrs (dict[str, dict]): Stores response status and headers by URL.
-    @param stats (dict): Collects counters like "downloads", "errors", "warnings".
+    @param resources (ResourceData): Resource tracking data structure.
 
     @return None
     """
 
-    if response.url in url_map:  # already saved by interceptor
+    if response.url in resources.url_to_file:  # already saved by interceptor
         return
 
     req_type = response.request.resource_type
@@ -202,7 +198,7 @@ async def handle_response(
         return
 
     url = response.url
-    resp_hdrs[url] = {
+    resources.response_headers[url] = {
         "status_code": response.status,
         "headers": dict(response.headers),
     }
@@ -232,7 +228,7 @@ async def handle_response(
     os.makedirs(dirpath, exist_ok=True)
 
     fpath = _dedup(Path(dirpath) / fname)
-    url_map[url] = os.path.relpath(fpath, out_dir)
+    resources.url_to_file[url] = os.path.relpath(fpath, out_dir)
 
     try:
         body = await response.body()
@@ -240,7 +236,7 @@ async def handle_response(
             raise Error("empty")
         fpath.write_bytes(body)
         if is_download:
-            stats["downloads"] += 1
+            resources.stats["downloads"] += 1
             print(f"[DOWNLOAD] Saved: {fpath.name}")
 
     except Error as e:
@@ -248,17 +244,17 @@ async def handle_response(
             success = await _stream_fetch(response.request, fpath)
             if success:
                 if is_download:
-                    stats["downloads"] += 1
+                    resources.stats["downloads"] += 1
                 print(f"[DOWNLOAD] Fetched via HTTP: {fpath.name}")
             else:
-                stats["errors"] += 1
+                resources.stats["errors"] += 1
                 print(f"[ERROR] Fallback fetch failed for {url[:80]}…")
             return
-        stats["errors"] += 1
+        resources.stats["errors"] += 1
         print(f"[ERROR] Could not save {url}: {e}")
 
     except OSError as e:
-        stats["warnings"] += 1
+        resources.stats["warnings"] += 1
         print(f"[WARN] Could not write {fpath.name}: {e}")
 
 # ───────────────────────── misc helpers ──────────────────────────

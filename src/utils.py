@@ -7,7 +7,8 @@ Helper functions
 import csv
 import json
 import random
-from typing import Union
+from dataclasses import dataclass, field
+from typing import Union, Dict, Any, Optional
 
 from shapely import wkt
 from shapely.geometry import Point, Polygon, MultiPolygon
@@ -18,6 +19,28 @@ from pyproj import Geod
 
 CountryGeo = dict[str, Union[float, int, BaseGeometry]]
 UserAgentEntry = dict[str, str]
+
+# ───────────────────────── data structures ──────────────────────────
+
+@dataclass
+class ResourceData:
+    """Bundle all resource tracking data together."""
+    urls: set = field(default_factory=set)
+    request_headers: dict = field(default_factory=dict)  
+    response_headers: dict = field(default_factory=dict)
+    url_to_file: dict = field(default_factory=dict)
+    stats: dict = field(default_factory=lambda: {"downloads": 0, "warnings": 0, "errors": 0})
+
+@dataclass
+class Config:
+    """Bundle all configuration data together."""
+    gates_enabled: dict = field(default_factory=dict)
+    gate_args: dict = field(default_factory=dict)
+    proxy: Optional[dict] = None
+    engine: str = "auto"
+    headless: bool = False
+    interactive: bool = False
+    timeout_sec: int = 30
 
 # ───────────────────────── data ──────────────────────────
 

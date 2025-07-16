@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict
 from urllib.parse import urlparse
 
-from src.utils import COUNTRY_GEO, choose_ua, jitter_country_location
+from src.utils import COUNTRY_GEO, choose_ua, jitter_country_location, ResourceData, Config
 from src.browser import save_page
 
 BAR_LEN = 40  # characters in the progress bar
@@ -58,48 +58,55 @@ def run_single_url(url: str, args):
         print("[ERROR] Invalid URL:", url)
         return
 
-    gates_enabled: dict[str, bool] = {}
-    gate_args: dict[str, dict] = {}
-
+    # Build configuration object
+    config = Config()
+    
     if args.country:
         cc = args.country.upper()
         if cc not in COUNTRY_GEO:
             print(f"[ERROR] Invalid country code: {cc}")
             return
-        gates_enabled["GeolocationGate"] = True
-        gate_args["GeolocationGate"] = {"geolocation": jitter_country_location(cc)}
+        config.gates_enabled["GeolocationGate"] = True
+        config.gate_args["GeolocationGate"] = {"geolocation": jitter_country_location(cc)}
 
     if args.lang and not is_valid_lang(args.lang):
         print(f"[ERROR] Invalid language: {args.lang}")
         return
     if args.lang:
-        gates_enabled["LanguageGate"] = True
-        gate_args["LanguageGate"] = {"language": args.lang}
+        config.gates_enabled["LanguageGate"] = True
+        config.gate_args["LanguageGate"] = {"language": args.lang}
 
     if args.ua_full:
-        gates_enabled["UserAgentGate"] = True
+        config.gates_enabled["UserAgentGate"] = True
         ua_value = args.ua_full.strip()
-        gate_args["UserAgentGate"] = {
+        config.gate_args["UserAgentGate"] = {
             "user_agent": ua_value,
             "ua_arg": ua_value,  # used later for engine selection
         }
     elif args.ua:
-        gates_enabled["UserAgentGate"] = True
+        config.gates_enabled["UserAgentGate"] = True
         resolved_ua = choose_ua(args.ua)
-        gate_args["UserAgentGate"] = {
+        config.gate_args["UserAgentGate"] = {
             "user_agent": resolved_ua,
             "ua_arg": args.ua,
         }
 
-    proxy = {"server": args.proxy} if args.proxy and is_valid_proxy(args.proxy) else None
-    if args.proxy and not proxy:
+    config.proxy = {"server": args.proxy} if args.proxy and is_valid_proxy(args.proxy) else None
+    if args.proxy and not config.proxy:
         print("[ERROR] Invalid proxy format.")
         return
 
+    # Set other configuration values
+    config.engine = args.engine
+    config.interactive = args.headful
+    config.timeout_sec = int(args.timeout)
+    
+    # Create resource tracker
+    resources = ResourceData()
+    
     domain = urlparse(url).netloc.replace(":", "_")
     run_id = os.getenv("RUN_ID", "default")
     out_dir = f"./data/{run_id}/saved_{domain}"
-    timeout = int(args.timeout)
 
     if not args.plain_progress:
         print(f"Running Gaterunner for {url}")
@@ -111,17 +118,11 @@ def run_single_url(url: str, args):
             await save_page(
                 url,
                 out_dir,
-                gates_enabled=gates_enabled,
-                gate_args=gate_args,
-                proxy=proxy,
-                engine=args.engine,
-                # Always launch GUI‑capable browser; hide it behind Xvfb when not headful
-                launch_headless=False,
-                interactive=args.headful,
-                timeout_sec=timeout,
+                resources,
+                config,
             )
         except asyncio.TimeoutError:
-            print(f"[TIMEOUT] {url} hit {timeout}s limit")
+            print(f"[TIMEOUT] {url} hit {config.timeout_sec}s limit")
         except Exception as e:
             print(f"[ERROR] {url}: {e}")
 
