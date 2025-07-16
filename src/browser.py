@@ -9,11 +9,26 @@ import asyncio, os, hashlib
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlparse
+from dataclasses import dataclass, field
+from typing import Optional
 
 from playwright._impl._errors import TargetClosedError
 from playwright.async_api import async_playwright as async_pw, Error
 
 from .cdp_logger import attach_cdp_logger
+
+# ───────────────────────── data structures ──────────────────────────
+
+@dataclass
+class Config:
+    """Bundle all configuration data together."""
+    gates_enabled: dict = field(default_factory=dict)
+    gate_args: dict = field(default_factory=dict)
+    proxy: Optional[dict] = None
+    engine: str = "auto"
+    headless: bool = False
+    interactive: bool = False
+    timeout_sec: int = 30
 
 # ────────────── optional engines ──────────────
 try:
@@ -31,8 +46,8 @@ except ImportError:
 
 from .context import create_context
 from .spoof_manager import SpoofingManager
-from .utils import ResourceData, Config
 from .resources import (
+    ResourceData,
     handle_request,
     handle_response,
     save_json,

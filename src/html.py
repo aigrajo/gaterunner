@@ -7,7 +7,20 @@ Rewrites html for offline viewing
 import re
 from bs4 import BeautifulSoup
 import os
-from .utils import tag_attr_map
+
+# ───────────────────────── constants ──────────────────────────
+
+tag_attr_map: dict[str, list[str]] = {
+    'img': ['src', 'srcset'],
+    'script': ['src'],
+    'link': ['href'],
+    'iframe': ['src'],
+    'audio': ['src'],
+    'video': ['src', 'poster'],
+    'source': ['src', 'srcset'],
+    'embed': ['src'],
+    'object': ['data'],
+}
 
 def rewrite_html_resources(html_content, url_to_local):
     """

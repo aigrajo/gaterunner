@@ -1,5 +1,9 @@
 # useragent.py
 import asyncio
+import json
+import random
+from typing import Dict
+
 from src.clienthints import (
     send_ch,
     generate_sec_ch_ua,
@@ -10,7 +14,29 @@ from src.clienthints import (
     generate_sec_ch_ua_full_version_list,
 )
 from .base import GateBase
-import json
+
+# ───────────────────────── types ──────────────────────────
+
+UserAgentEntry = dict[str, str]
+
+# ───────────────────────── functions ──────────────────────────
+
+def choose_ua(key: str) -> str:
+    """Randomly choose a User-Agent string from a JSON file category.
+
+    @param key (str): Category key (e.g. 'desktop', 'mobile') from user-agents.json.
+
+    @return (str): A random User-Agent string.
+    @raise ValueError: If the category key is missing or empty.
+    """
+    with open('src/data/user-agents.json', newline='') as jsonfile:
+        ua_data: dict[str, list[UserAgentEntry]] = json.load(jsonfile)
+
+    if key not in ua_data or not ua_data[key]:
+        raise ValueError(f"No agents found in category: {key}")
+
+    ua_obj = random.choice(ua_data[key])
+    return ua_obj["userAgent"]
 
 class UserAgentGate(GateBase):
     name = "UserAgentGate"

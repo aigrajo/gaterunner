@@ -10,13 +10,35 @@ import re
 import urllib
 from pathlib import Path
 from urllib.parse import urlparse
+from dataclasses import dataclass, field
 import httpx, aiofiles
 from httpx import HTTPStatusError
 
 from playwright.async_api import Error
 from playwright._impl._errors import Error as CDPError
 
-from .utils import RESOURCE_DIRS
+# ───────────────────────── data structures ──────────────────────────
+
+@dataclass
+class ResourceData:
+    """Bundle all resource tracking data together."""
+    urls: set = field(default_factory=set)
+    request_headers: dict = field(default_factory=dict)  
+    response_headers: dict = field(default_factory=dict)
+    url_to_file: dict = field(default_factory=dict)
+    stats: dict = field(default_factory=lambda: {"downloads": 0, "warnings": 0, "errors": 0})
+
+# ───────────────────────── constants ──────────────────────────
+
+# Resource directory mapping - moved from utils.py
+RESOURCE_DIRS: dict[str, str] = {
+    'image': 'images',
+    'script': 'scripts',
+    'stylesheet': 'stylesheets',
+    'font': 'fonts',
+    'media': 'media',
+    'document': 'html',
+}
 
 # ───────────────────────── constants ──────────────────────────
 

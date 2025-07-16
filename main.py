@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import List, Dict
 from urllib.parse import urlparse
 
-from src.utils import COUNTRY_GEO, choose_ua, jitter_country_location, ResourceData, Config
+from src.browser import Config
+from src.resources import ResourceData
+from src.gates.geolocation import COUNTRY_GEO, jitter_country_location
+from src.gates.useragent import choose_ua
 from src.browser import save_page
 
 BAR_LEN = 40  # characters in the progress bar
