@@ -44,7 +44,6 @@
   }
 })();
 
-
 /* REMOVED: UserAgentData handled by spoof_useragent.js */
 // UserAgentData spoofing moved to dedicated spoof_useragent.js to avoid conflicts
 
@@ -97,7 +96,4 @@
     'canLoadAdAuctionFencedFrame', 'createAuctionNonce'
   ].forEach(key => delete Navigator.prototype[key]);
 })();
-
-
-
 

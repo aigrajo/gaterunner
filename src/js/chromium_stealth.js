@@ -126,8 +126,6 @@ const _hc_map = {4:4,6:4,8:4,12:8,16:8,24:12,32:16};
     // Preserve original Worker properties
     Object.setPrototypeOf(Worker, OriginalWorker);
     Worker.prototype = OriginalWorker.prototype;
-    
-    console.log('[STEALTH] Worker constructor patched for UA/platform consistency');
   }
   
   // 2. Override userAgent at navigator instance level (main thread)
@@ -153,14 +151,7 @@ const _hc_map = {4:4,6:4,8:4,12:8,16:8,24:12,32:16};
       });
     } else {
       // CREEPJS FIX: If platform is non-configurable, try alternative approaches
-      console.warn('[STEALTH] navigator.platform is non-configurable - this may cause mismatch detection');
-      
-      // Try to at least log the mismatch for debugging
-      console.log('[STEALTH] Platform mismatch detected:', {
-        actualPlatform: navigator.platform,
-        expectedPlatform: EXPECTED_PLATFORM,
-        userAgent: EXPECTED_UA
-      });
+      // Platform mismatch detected - non-configurable
     }
   } catch (_) {}
   
@@ -184,14 +175,11 @@ const EXPECTED_HIGH_ENTROPY = ${JSON.stringify(EXPECTED_HIGH_ENTROPY)}
 const EXPECTED_LANG = EXPECTED_LANGS[0] || 'en-US';
 const EXPECTED_TIMEZONE = '__TZ__';
 
-console.log('STEALTH: Service Worker preamble executing...');
-
 // Override ALL navigator properties in service worker context
-try {
-  if (typeof WorkerNavigator !== 'undefined' && WorkerNavigator.prototype) {
-    console.log('STEALTH: Overriding WorkerNavigator.prototype...');
-    Object.defineProperty(WorkerNavigator.prototype, 'userAgent', {
-      get: function() { console.log('STEALTH: WorkerNavigator.userAgent called'); return EXPECTED_UA; },
+  try {
+    if (typeof WorkerNavigator !== 'undefined' && WorkerNavigator.prototype) {
+      Object.defineProperty(WorkerNavigator.prototype, 'userAgent', {
+              get: function() { return EXPECTED_UA; },
       enumerable: true,
       configurable: true
     });
@@ -221,13 +209,12 @@ try {
       configurable: true
     });
   }
-} catch(e) { console.log('STEALTH: WorkerNavigator.prototype failed:', e); }
+} catch(e) { }
 
 try {
   if (typeof navigator !== 'undefined') {
-    console.log('STEALTH: Overriding navigator...');
     Object.defineProperty(navigator, 'userAgent', {
-      get: function() { console.log('STEALTH: navigator.userAgent called'); return EXPECTED_UA; },
+      get: function() { return EXPECTED_UA; },
       enumerable: true,
       configurable: true
     });
@@ -260,13 +247,12 @@ try {
     /* REMOVED: userAgentData handled by spoof_useragent.js */
     // userAgentData spoofing moved to dedicated spoof_useragent.js to avoid conflicts
   }
-} catch(e) { console.log('STEALTH: navigator failed:', e); }
+} catch(e) { }
 
 try {
   if (typeof self !== 'undefined' && self.navigator) {
-    console.log('STEALTH: Overriding self.navigator...');
     Object.defineProperty(self.navigator, 'userAgent', {
-      get: function() { console.log('STEALTH: self.navigator.userAgent called'); return EXPECTED_UA; },
+      get: function() { return EXPECTED_UA; },
       enumerable: true,
       configurable: true
     });
@@ -299,11 +285,10 @@ try {
     /* REMOVED: userAgentData handled by spoof_useragent.js */
     // userAgentData spoofing moved to dedicated spoof_useragent.js to avoid conflicts
   }
-} catch(e) { console.log('STEALTH: self.navigator failed:', e); }
+} catch(e) { }
 
 try {
   if (typeof globalThis !== 'undefined' && globalThis.navigator) {
-    console.log('STEALTH: Overriding globalThis.navigator...');
     Object.defineProperty(globalThis.navigator, 'userAgent', {
       get: function() { return EXPECTED_UA; },
       enumerable: true,
@@ -335,14 +320,13 @@ try {
       configurable: true
     });
   }
-} catch(e) { console.log('STEALTH: globalThis.navigator failed:', e); }
+} catch(e) { }
 
 // Override all possible navigator objects in ServiceWorkerGlobalScope
 if (typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWorkerGlobalScope) {
   try {
-    console.log('STEALTH: In ServiceWorkerGlobalScope, overriding...');
     Object.defineProperty(self.navigator, 'userAgent', {
-      get: function() { console.log('STEALTH: ServiceWorker userAgent called'); return EXPECTED_UA; },
+      get: function() { return EXPECTED_UA; },
       enumerable: true,
       configurable: true
     });
@@ -371,7 +355,7 @@ if (typeof ServiceWorkerGlobalScope !== 'undefined' && self instanceof ServiceWo
       enumerable: true,
       configurable: true
     });
-  } catch(e) { console.log('STEALTH: ServiceWorkerGlobalScope failed:', e); }
+  } catch(e) { }
 }
 
 // CRITICAL: Override Intl APIs to match main thread
@@ -408,10 +392,7 @@ try {
     return originalNumberToLocaleString.call(this, EXPECTED_LANG, options);
   };
   
-  console.log('STEALTH: Intl overrides installed');
-} catch(e) { console.log('STEALTH: Intl override failed:', e); }
-
-console.log('STEALTH: Service Worker preamble completed');
+  } catch(e) { }
 
 `;
         
@@ -460,7 +441,6 @@ console.log('STEALTH: Service Worker preamble completed');
         return originalRegister.call(this, scriptURL, options);
         
       } catch (error) {
-        console.warn('ServiceWorker patching failed:', error);
         return originalRegister.call(this, scriptURL, options);
       }
     };
@@ -488,14 +468,11 @@ console.log('STEALTH: Service Worker preamble completed');
   const PLATFORM = '${EXPECTED_PLATFORM}';
   const TIMEZONE = '__TZ__';
   
-  console.log('STEALTH: Worker preamble executing...', { UA, LANGS, MEM, CORES, PLATFORM });
-  
   // Method 1: WorkerNavigator prototype override
   try {
     if (typeof WorkerNavigator !== 'undefined') {
-      console.log('STEALTH: Overriding WorkerNavigator.prototype...');
       Object.defineProperty(WorkerNavigator.prototype, 'userAgent', {
-        get: function() { console.log('STEALTH: WorkerNavigator.userAgent called'); return UA; },
+        get: function() { return UA; },
         enumerable: true,
         configurable: true
       });
@@ -524,16 +501,14 @@ console.log('STEALTH: Service Worker preamble completed');
         enumerable: true,
         configurable: true
       });
-      console.log('STEALTH: WorkerNavigator.prototype overrides complete');
-    }
-  } catch(e) { console.log('STEALTH: WorkerNavigator.prototype failed:', e); }
+      }
+  } catch(e) { }
   
   // Method 2: Direct navigator override
   try {
     if (typeof navigator !== 'undefined') {
-      console.log('STEALTH: Overriding navigator...');
       Object.defineProperty(navigator, 'userAgent', {
-        get: function() { console.log('STEALTH: navigator.userAgent called'); return UA; },
+        get: function() { return UA; },
         enumerable: true,
         configurable: true
       });
@@ -562,16 +537,14 @@ console.log('STEALTH: Service Worker preamble completed');
         enumerable: true,
         configurable: true
       });
-      console.log('STEALTH: navigator overrides complete');
-    }
-  } catch(e) { console.log('STEALTH: navigator failed:', e); }
+      }
+  } catch(e) { }
   
   // Method 3: Self navigator override (for service workers)
   try {
     if (typeof self !== 'undefined' && self.navigator) {
-      console.log('STEALTH: Overriding self.navigator...');
       Object.defineProperty(self.navigator, 'userAgent', {
-        get: function() { console.log('STEALTH: self.navigator.userAgent called'); return UA; },
+        get: function() { return UA; },
         enumerable: true,
         configurable: true
       });
@@ -600,14 +573,12 @@ console.log('STEALTH: Service Worker preamble completed');
         enumerable: true,
         configurable: true
       });
-      console.log('STEALTH: self.navigator overrides complete');
-    }
-  } catch(e) { console.log('STEALTH: self.navigator failed:', e); }
+      }
+  } catch(e) { }
   
   // Method 4: Global scope injection
   try {
     if (typeof globalThis !== 'undefined' && globalThis.navigator) {
-      console.log('STEALTH: Overriding globalThis.navigator...');
       Object.defineProperty(globalThis.navigator, 'userAgent', {
         get: function() { return UA; },
         enumerable: true,
@@ -638,9 +609,8 @@ console.log('STEALTH: Service Worker preamble completed');
         enumerable: true,
         configurable: true
       });
-      console.log('STEALTH: globalThis.navigator overrides complete');
-    }
-  } catch(e) { console.log('STEALTH: globalThis.navigator failed:', e); }
+      }
+  } catch(e) { }
   
   // CRITICAL: Override Intl APIs to match main thread
   try {
@@ -676,11 +646,9 @@ console.log('STEALTH: Service Worker preamble completed');
       return originalNumberToLocaleString.call(this, LANG, options);
     };
     
-    console.log('STEALTH: Intl overrides installed');
-  } catch(e) { console.log('STEALTH: Intl override failed:', e); }
+    } catch(e) { }
   
-  console.log('STEALTH: Worker preamble completed');
-})();
+  })();
 `;
 
   // Patch regular Worker
@@ -725,7 +693,6 @@ console.log('STEALTH: Service Worker preamble completed');
         return worker;
         
       } catch (error) {
-        console.warn('Worker patching failed:', error);
         return new OriginalWorker(scriptURL, options);
       }
     };
@@ -772,7 +739,6 @@ console.log('STEALTH: Service Worker preamble completed');
         return sharedWorker;
         
       } catch (error) {
-        console.warn('SharedWorker patching failed:', error);
         return new OriginalSharedWorker(scriptURL, options);
       }
     };
@@ -857,7 +823,6 @@ const touchEvents = __TOUCH_JS__;
       };
     }
   } catch (err) {
-    console.warn('[STEALTH] Deep stealth patch failed:', err);
-  }
+    }
 })();
 

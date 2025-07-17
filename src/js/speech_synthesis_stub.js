@@ -75,8 +75,6 @@
         enumerable: false,
         configurable: true
       });
-      
-      console.log('[SPEECH] speechSynthesis.getVoices patched with proper error handling');
     }
   }
 })();
