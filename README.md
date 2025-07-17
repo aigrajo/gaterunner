@@ -22,7 +22,7 @@ To run Gaterunner on a list of urls, run:
 python main.py urls.txt
 ```
 
-The `--workers N` flag runs `N` instances of **Gaterunner** in parallel. Since website behavior tends to vary widely, it's best to allocate workers conservatively. A good rule of thumb is 1 worker per 1gb of RAM. Debug statements are represented differently in parallel mode:
+The `--workers N` flag runs `N` instances of **Gaterunner** in parallel. Since website behavior tends to vary widely, it's best to allocate workers conservatively. Debug statements are represented differently in parallel mode:
 ```bash
 python main.py urls.txt --workers 3
 [----------------------------------------] 00% | 11:03 (0/100)
@@ -39,4 +39,4 @@ python main.py https://example.com --ua-full "Mozilla/5.0 (Windows NT 10.0; Win6
 
 
 
-2 more engines are integrated into **Gaterunner**.  `--engine camoufox` ([Camoufox](https://github.com/daijro/camoufox)) is a stealth browser forked from Firefox that is undetectable by fingerprinting and bot detection. It randomizes values like **Gaterunner**'s base engine. But many malicious sites tend to behave differently than they would on a chromium browser. `--engine patchright`([Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) is a stealth-focused fork of Playwright. It does not offer the same value randomization as the other 2 engine choices. 
+2 more engines are integrated into **Gaterunner**.  `--engine camoufox` ([Camoufox](https://github.com/daijro/camoufox)) is a stealth browser forked from Firefox that is undetectable by fingerprinting and bot detection. It randomizes values like **Gaterunner**'s base engine. But many malicious sites tend to behave differently than they would on a chromium browser. `--engine patchright`([Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)) is a stealth-focused fork of Playwright. It does not offer the same value randomization as the other 2 engine choices. 

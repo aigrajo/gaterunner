@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.gates import ALL_GATES
+from src.debug import debug_print
 
 
 class SpoofingManager:
@@ -144,7 +145,7 @@ class SpoofingManager:
                     try:
                         js_code = self._load_and_render_template(patch_name, all_template_vars)
                         await context.add_init_script(js_code)
-                        print(f"[SPOOFING] Applied JS patch: {patch_name} (via {gate.name})")
+                        debug_print(f"[DEBUG] Applied JS patch: {patch_name} (via {gate.name})")
                     except Exception as e:
                         print(f"[WARN] Failed to apply JS patch {patch_name}: {e}")
     

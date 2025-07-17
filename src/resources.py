@@ -16,6 +16,7 @@ from httpx import HTTPStatusError
 
 from playwright.async_api import Error
 from playwright._impl._errors import Error as CDPError
+from src.debug import debug_print
 
 # ───────────────────────── data structures ──────────────────────────
 
@@ -86,7 +87,7 @@ def _validate_metadata_completeness(url: str, resources: ResourceData, context: 
     if missing:
         print(f"[WARN] {context} Missing metadata for {url[:80]}…: {', '.join(missing)}")
     else:
-        print(f"[INFO] {context} Complete metadata saved for {url[:80]}…")
+        debug_print(f"[DEBUG] {context} Complete metadata saved for {url[:80]}…")
 
 
 def _guess_ext(ct: str) -> str:

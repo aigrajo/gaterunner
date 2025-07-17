@@ -11,6 +11,7 @@ from src.resources import ResourceData
 from src.gates.geolocation import COUNTRY_GEO, jitter_country_location
 from src.gates.useragent import choose_ua
 from src.browser import save_page
+from src.debug import set_verbose
 
 BAR_LEN = 40  # characters in the progress bar
 
@@ -64,6 +65,9 @@ def run_single_url(url: str, args):
     # Build configuration object
     config = Config()
     
+    # Set debug output based on verbose flag
+    set_verbose(args.verbose)
+    
     if args.country:
         cc = args.country.upper()
         if cc not in COUNTRY_GEO:
@@ -103,6 +107,7 @@ def run_single_url(url: str, args):
     config.engine = args.engine
     config.interactive = args.headful
     config.timeout_sec = int(args.timeout)
+    config.verbose = args.verbose
     
     # Create resource tracker
     resources = ResourceData()
@@ -112,8 +117,8 @@ def run_single_url(url: str, args):
     out_dir = f"{args.output_dir}/{run_id}/saved_{domain}"
 
     if not args.plain_progress:
-        print(f"Running Gaterunner for {url}")
-        print(f"Output directory: {out_dir}")
+        print(f"[INFO] Running Gaterunner for {url}")
+        print(f"[INFO] Output directory: {out_dir}")
 
     async def _crawl():
         asyncio.get_running_loop().set_exception_handler(_loop_exception_filter)
@@ -171,6 +176,9 @@ def _init_pool(ns, status_dict):
     _GLOBAL_ARGS = ns
     _STATUS_DICT = status_dict
 
+    # Set debug flag for worker process
+    set_verbose(ns.verbose)
+
     run_id = os.getenv("RUN_ID", "default")
     log_root = Path("./logs") / run_id
     log_root.mkdir(parents=True, exist_ok=True)
@@ -201,7 +209,7 @@ def run_batch_serial(urls: List[str], args):
         url = deobfuscate_url(raw)
         run_single_url(url, args)
         done += 1
-        sys.stdout.write(f"\r{done}/{total} done\n")
+        sys.stdout.write(f"\r[PROGRESS] {done}/{total} done\n")
         sys.stdout.flush()
     print()
 
@@ -275,6 +283,12 @@ def main():
         "--output-dir",
         default="./data",
         help="Base directory for saving files; defaults to './data'",
+    )
+
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable debug output; prints all [DEBUG] statements",
     )
 
     args = parser.parse_args()

@@ -19,6 +19,7 @@ from functools import lru_cache
 from playwright.async_api import Browser, BrowserContext, Playwright
 
 from src.spoof_manager import SpoofingManager
+from src.debug import debug_print
 
 # ──────────────────────────────
 # Optional: httpagentparser for robust engine detection
@@ -267,7 +268,7 @@ async def create_context(
                 enhanced_gate_args["LanguageGate"]["user_agent"] = ua
             
             # Debug: Show final gate configuration
-            print(f"[DEBUG] Enhanced gate config: {enhanced_gate_args}")
+            debug_print(f"[DEBUG] Enhanced gate config: {enhanced_gate_args}")
             
             # Apply unified spoofing (no page yet, will be set later)
             await spoofing_manager.apply_spoofing(

@@ -29,6 +29,7 @@ class Config:
     headless: bool = False
     interactive: bool = False
     timeout_sec: int = 30
+    verbose: bool = False
 
 # ────────────── optional engines ──────────────
 try:
@@ -56,7 +57,6 @@ from .resources import (
     enable_cdp_download_interceptor, _make_slug
 )
 
-# ───────────────────────── helpers (add near top of browser.py) ─────────────────────────
 from playwright._impl._errors import Error as PWError, TargetClosedError   # keeps old imports working
 
 async def _safe_goto(page, url: str, *, timeout: int = 40_000) -> bool:
