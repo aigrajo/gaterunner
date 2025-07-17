@@ -109,7 +109,7 @@ def run_single_url(url: str, args):
     
     domain = urlparse(url).netloc.replace(":", "_")
     run_id = os.getenv("RUN_ID", "default")
-    out_dir = f"./data/{run_id}/saved_{domain}"
+    out_dir = f"{args.output_dir}/{run_id}/saved_{domain}"
 
     if not args.plain_progress:
         print(f"Running Gaterunner for {url}")
@@ -269,6 +269,12 @@ def main():
         "--plain-progress",
         action="store_true",
         help="Disable ANSI progress bar; print simple line output instead",
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        default="./data",
+        help="Base directory for saving files; defaults to './data'",
     )
 
     args = parser.parse_args()
