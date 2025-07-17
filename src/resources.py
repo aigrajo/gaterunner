@@ -68,6 +68,27 @@ _BINARY_MIME_SNIPPETS: tuple[str, ...] = (
 
 # ───────────────────────── helpers ──────────────────────────
 
+def _validate_metadata_completeness(url: str, resources: ResourceData, context: str = ""):
+    """Validate that both file mapping and response headers are present for a URL.
+    
+    @param url (str): The URL to check metadata for.
+    @param resources (ResourceData): Resource tracking data structure.
+    @param context (str): Context string for logging (e.g., "CDP", "stream_fetch").
+    
+    @return None
+    """
+    missing = []
+    if url not in resources.url_to_file:
+        missing.append("url_to_file")
+    if url not in resources.response_headers:
+        missing.append("response_headers")
+    
+    if missing:
+        print(f"[WARN] {context} Missing metadata for {url[:80]}…: {', '.join(missing)}")
+    else:
+        print(f"[INFO] {context} Complete metadata saved for {url[:80]}…")
+
+
 def _guess_ext(ct: str) -> str:
     """Infer file extension based on Content-Type header.
 
@@ -209,9 +230,6 @@ async def handle_response(
     @return None
     """
 
-    if response.url in resources.url_to_file:  # already saved by interceptor
-        return
-
     req_type = response.request.resource_type
     if req_type not in {
         "document", "stylesheet", "script", "image",
@@ -220,10 +238,18 @@ async def handle_response(
         return
 
     url = response.url
+    
+    # Always collect response headers from playwright Response (most reliable source)
     resources.response_headers[url] = {
         "status_code": response.status,
         "headers": dict(response.headers),
     }
+    
+    # If file was already saved by CDP interceptor, we're done
+    if response.url in resources.url_to_file:
+        print(f"[INFO] Metadata updated for CDP-saved file: {url[:80]}…")
+        _validate_metadata_completeness(url, resources, "handle_response_post_cdp")
+        return
 
     if 300 <= response.status < 400:
         return  # skip redirects
@@ -260,14 +286,19 @@ async def handle_response(
         if is_download:
             resources.stats["downloads"] += 1
             print(f"[DOWNLOAD] Saved: {fpath.name}")
+        
+        # Validate metadata completeness
+        _validate_metadata_completeness(url, resources, "handle_response")
 
     except Error as e:
         if any(tok in str(e) for tok in ("Network.getResponseBody", "empty")):
-            success = await _stream_fetch(response.request, fpath)
+            success = await _stream_fetch(response.request, fpath, resources, url, out_dir)
             if success:
                 if is_download:
                     resources.stats["downloads"] += 1
                 print(f"[DOWNLOAD] Fetched via HTTP: {fpath.name}")
+                # Validate metadata after successful fallback fetch
+                _validate_metadata_completeness(url, resources, "fallback_fetch")
             else:
                 resources.stats["errors"] += 1
                 print(f"[ERROR] Fallback fetch failed for {url[:80]}…")
@@ -308,9 +339,9 @@ async def save_screenshot(page, out_dir: str):
     except Exception:
         print("[WARN] screenshot failed (page closed)")
 
-async def _stream_fetch(req, dest: Path, timeout: int = 30):
+async def _stream_fetch(req, dest: Path, resources=None, url=None, out_dir=None, timeout: int = 30):
     """Replay the original request outside DevTools, keeping method, body, cookies."""
-    url = req.url
+    url = url or req.url
     method = req.method
     post_data = req.post_data or None
     headers = dict(req.headers)
@@ -338,6 +369,23 @@ async def _stream_fetch(req, dest: Path, timeout: int = 30):
             async with aiofiles.open(dest, "wb") as fh:
                 async for chunk in r.aiter_bytes(65536):
                     await fh.write(chunk)
+            
+            # Update metadata if resources object provided
+            if resources and url:
+                # Update response headers with HTTP response data
+                if url not in resources.response_headers:
+                    resources.response_headers[url] = {
+                        "status_code": r.status_code,
+                        "headers": dict(r.headers),
+                    }
+                
+                # Update file mapping if not already set
+                if url not in resources.url_to_file and out_dir:
+                    resources.url_to_file[url] = os.path.relpath(dest, out_dir)
+                
+                # Validate metadata completeness
+                _validate_metadata_completeness(url, resources, "stream_fetch")
+                    
         return True
     except (HTTPStatusError, httpx.TransportError):
         return False
@@ -354,9 +402,7 @@ def _dedup(path: Path) -> Path:
 async def enable_cdp_download_interceptor(
     page,
     downloads_dir,
-    url_map: dict[str, str],
-    resp_hdrs: dict[str, dict],
-    stats: dict,
+    resources: ResourceData,
 ):
     from pathlib import Path
     import base64
@@ -407,13 +453,16 @@ async def enable_cdp_download_interceptor(
                             break
                     await cdp.send("IO.close", {"handle": stream_id})
 
-                url_map[url] = os.path.relpath(dest, downloads_dir.parent)
-                resp_hdrs[url] = {
+                resources.url_to_file[url] = os.path.relpath(dest, downloads_dir.parent)
+                resources.response_headers[url] = {
                     "status_code": ev.get("responseStatusCode", 200),
                     "headers": {h["name"]: h["value"] for h in hdrs},
                 }
-                stats["downloads"] += 1
+                resources.stats["downloads"] += 1
                 print(f"[DOWNLOAD] Stream-saved: {dest.name}")
+                
+                # Validate metadata completeness
+                _validate_metadata_completeness(url, resources, "CDP")
                 saved = True
 
             except Exception as e:

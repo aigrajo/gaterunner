@@ -156,7 +156,7 @@ async def _grab(                     # noqa: C901 – long but linear
     if is_chromium:
         await enable_cdp_download_interceptor(
             page, Path(out_dir) / "downloads",
-            resources.url_to_file, resources.response_headers, resources.stats,
+            resources,
         )
         dump_cdp = await attach_cdp_logger(page, out_dir)
     else:
@@ -174,20 +174,35 @@ async def _grab(                     # noqa: C901 – long but linear
     # navigation (guarded)
     print(f"[INFO] Loading page: {url}")
     ok = await _safe_goto(page, url)
-    if not ok:
-        return
-
-    # wait for downloads
+    
+    # wait for downloads regardless of page load success
     if downloads:
         await asyncio.gather(*downloads, return_exceptions=True)
 
-    # artefacts
+    # artefacts - always save metadata even if page aborted
     os.makedirs(out_dir, exist_ok=True)
     if not page.is_closed():
         await _safe_screenshot(page, out_dir)
     save_json(os.path.join(out_dir, "http_request_headers.json"), resources.request_headers)
     save_json(os.path.join(out_dir, "http_response_headers.json"), resources.response_headers)
-    save_json(os.path.join(out_dir, "cookies.json"), await context.cookies())
+    
+    # Save cookies with error handling in case context is closed
+    try:
+        cookies = await context.cookies()
+    except Exception as e:
+        print(f"[WARN] Could not collect cookies: {e}")
+        cookies = []
+    save_json(os.path.join(out_dir, "cookies.json"), cookies)
+    
+    # Comprehensive stats message for all sites
+    print(f"[STATS] Captured {len(resources.urls)} resources | "
+          f"requests={len(resources.request_headers)} responses={len(resources.response_headers)} files={len(resources.url_to_file)} | "
+          f"downloads={resources.stats['downloads']} warnings={resources.stats['warnings']} errors={resources.stats['errors']}")
+    
+    # Early return only after metadata is saved
+    if not ok:
+        print(f"[INFO] Page aborted after download intercept: {url}")
+        return
 
     # optional manual phase
     if config.interactive and not page.is_closed():
@@ -196,9 +211,6 @@ async def _grab(                     # noqa: C901 – long but linear
             await page.wait_for_event("close", timeout=86_400_000)  # 24 h
         except (KeyboardInterrupt, asyncio.TimeoutError):
             pass
-
-    print(f"Captured {len(resources.urls)} resources | "
-          f"downloads={resources.stats['downloads']} warnings={resources.stats['warnings']} errors={resources.stats['errors']}")
 
 
 
