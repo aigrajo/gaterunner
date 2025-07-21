@@ -75,6 +75,9 @@ def run_single_url(url: str, args):
             return
         config.gates_enabled["GeolocationGate"] = True
         config.gate_args["GeolocationGate"] = {"geolocation": jitter_country_location(cc)}
+        # Enable TimezoneGate with country code for dynamic timezone selection
+        config.gates_enabled["TimezoneGate"] = True
+        config.gate_args["TimezoneGate"] = {"country": cc}
 
     if args.lang and not is_valid_lang(args.lang):
         print(f"[ERROR] Invalid language: {args.lang}")

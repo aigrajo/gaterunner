@@ -5,6 +5,7 @@ from .useragent import UserAgentGate
 from .network import NetworkGate
 from .webgl import WebGLGate
 from .stealth import StealthGate
+from .timezone import TimezoneGate
 
 # List of all gates to be run
 ALL_GATES = [
@@ -15,4 +16,5 @@ ALL_GATES = [
     NetworkGate(),
     WebGLGate(),
     StealthGate(),
+    TimezoneGate(),
 ]

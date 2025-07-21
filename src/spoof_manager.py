@@ -75,8 +75,25 @@ class SpoofingManager:
             if self._is_gate_enabled(gate, gate_config):
                 args = gate_config.get(gate.name, {}).copy()
                 # Special case: provide GPU vendor/renderer to UserAgentGate during context phase
-                if gate.name == "UserAgentGate" and "WebGLGate" in gate_config:
-                    args.update(gate_config.get("WebGLGate", {}))
+                if gate.name == "UserAgentGate":
+                    if "WebGLGate" in gate_config:
+                        args.update(gate_config.get("WebGLGate", {}))
+                    else:
+                        vendor = getattr(self, "_last_template_vars", {}).get("__WEBGL_VENDOR__")
+                        renderer = getattr(self, "_last_template_vars", {}).get("__WEBGL_RENDERER__")
+                        if vendor and renderer:
+                            args.update({"webgl_vendor": vendor, "webgl_renderer": renderer})
+                    
+                    # Pass timezone from TimezoneGate if available
+                    if "TimezoneGate" in gate_config:
+                        timezone_args = gate_config.get("TimezoneGate", {})
+                        timezone_gate = next((g for g in self.gates if g.name == "TimezoneGate"), None)
+                        if timezone_gate:
+                            timezone_vars = timezone_gate.get_js_template_vars(**timezone_args)
+                            if "timezone_id" in timezone_vars:
+                                args["timezone_id"] = timezone_vars["timezone_id"]
+                    
+                    print(f"[DEBUG] _apply_http_spoofing -> UserAgentGate handle args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')} timezone={args.get('timezone_id', 'UTC')}")
                 await gate.handle(page, context, **args, url=url)
         
         # Collect headers from all enabled gates
@@ -129,9 +146,24 @@ class SpoofingManager:
         # Collect all template variables from all gates first
         all_template_vars = {}
         
+        # Special handling: collect timezone from TimezoneGate first if enabled
+        selected_timezone = "UTC"  # default
+        for gate in self.gates:
+            if self._is_gate_enabled(gate, gate_config) and gate.name == "TimezoneGate":
+                args = gate_config.get(gate.name, {})
+                timezone_vars = gate.get_js_template_vars(**args)
+                if "timezone_id" in timezone_vars:
+                    selected_timezone = timezone_vars["timezone_id"]
+                    print(f"[DEBUG] Using timezone from TimezoneGate: {selected_timezone}")
+                break
+        
         for gate in self.gates:
             if self._is_gate_enabled(gate, gate_config):
                 args = gate_config.get(gate.name, {})
+                # Pass timezone to gates that need it
+                if gate.name in ["UserAgentGate", "LanguageGate"]:
+                    args = args.copy()
+                    args["timezone_id"] = selected_timezone
                 gate_template_vars = gate.get_js_template_vars(**args)
                 all_template_vars.update(gate_template_vars)
         
@@ -219,16 +251,28 @@ class SpoofingManager:
         for gate in self.gates:
             if self._is_gate_enabled(gate, gate_config) and hasattr(gate, "setup_page_handlers"):
                 args = gate_config.get(gate.name, {}).copy()
+                
                 # Special case: UserAgentGate needs WebGL vendor/renderer for worker spoof
                 if gate.name == "UserAgentGate":
                     if "WebGLGate" in gate_config:
                         args.update(gate_config.get("WebGLGate", {}))
                     else:
+                        # Fallback: pull from last template vars if available
                         vendor = getattr(self, "_last_template_vars", {}).get("__WEBGL_VENDOR__")
                         renderer = getattr(self, "_last_template_vars", {}).get("__WEBGL_RENDERER__")
                         if vendor and renderer:
                             args.update({"webgl_vendor": vendor, "webgl_renderer": renderer})
-                    debug_print(f"[DEBUG] _apply_http_spoofing -> UserAgentGate handle args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')}")
+                    
+                    # Pass timezone from TimezoneGate if available
+                    if "TimezoneGate" in gate_config:
+                        timezone_args = gate_config.get("TimezoneGate", {})
+                        timezone_gate = next((g for g in self.gates if g.name == "TimezoneGate"), None)
+                        if timezone_gate:
+                            timezone_vars = timezone_gate.get_js_template_vars(**timezone_args)
+                            if "timezone_id" in timezone_vars:
+                                args["timezone_id"] = timezone_vars["timezone_id"]
+                    
+                    print(f"[DEBUG] apply_spoofing -> UserAgentGate args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')} timezone={args.get('timezone_id', 'UTC')}")
                 try:
                     await gate.setup_page_handlers(page, context, **args)
                     debug_print(f"[DEBUG] Set up page handlers for {gate.name}")
