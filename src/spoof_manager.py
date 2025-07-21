@@ -73,7 +73,10 @@ class SpoofingManager:
         # Call handle() on all enabled gates
         for gate in self.gates:
             if self._is_gate_enabled(gate, gate_config):
-                args = gate_config.get(gate.name, {})
+                args = gate_config.get(gate.name, {}).copy()
+                # Special case: provide GPU vendor/renderer to UserAgentGate during context phase
+                if gate.name == "UserAgentGate" and "WebGLGate" in gate_config:
+                    args.update(gate_config.get("WebGLGate", {}))
                 await gate.handle(page, context, **args, url=url)
         
         # Collect headers from all enabled gates
@@ -131,6 +134,9 @@ class SpoofingManager:
                 args = gate_config.get(gate.name, {})
                 gate_template_vars = gate.get_js_template_vars(**args)
                 all_template_vars.update(gate_template_vars)
+        
+        # 🔧 Persist template vars for later (e.g., worker GPU sync)
+        self._last_template_vars = all_template_vars.copy()
         
         # Then apply patches with the merged template variables
         for gate in self.gates:
@@ -194,6 +200,41 @@ class SpoofingManager:
         
         return rendered
     
+    async def setup_page_handlers(
+        self,
+        page,
+        context,
+        gate_config: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Set up page-specific handlers (like worker event listeners) after page creation.
+        
+        @param page: Playwright page instance
+        @param context: Playwright browser context
+        @param gate_config: Dict of gate names -> gate arguments
+        """
+        gate_config = gate_config or {}
+        
+        # Call setup_page_handlers on all enabled gates that have it
+        for gate in self.gates:
+            if self._is_gate_enabled(gate, gate_config) and hasattr(gate, "setup_page_handlers"):
+                args = gate_config.get(gate.name, {}).copy()
+                # Special case: UserAgentGate needs WebGL vendor/renderer for worker spoof
+                if gate.name == "UserAgentGate":
+                    if "WebGLGate" in gate_config:
+                        args.update(gate_config.get("WebGLGate", {}))
+                    else:
+                        vendor = getattr(self, "_last_template_vars", {}).get("__WEBGL_VENDOR__")
+                        renderer = getattr(self, "_last_template_vars", {}).get("__WEBGL_RENDERER__")
+                        if vendor and renderer:
+                            args.update({"webgl_vendor": vendor, "webgl_renderer": renderer})
+                    debug_print(f"[DEBUG] _apply_http_spoofing -> UserAgentGate handle args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')}")
+                try:
+                    await gate.setup_page_handlers(page, context, **args)
+                    debug_print(f"[DEBUG] Set up page handlers for {gate.name}")
+                except Exception as e:
+                    print(f"[WARN] Failed to setup page handlers for {gate.name}: {e}")
+
     def _is_gate_enabled(self, gate, gate_config: Dict[str, Any]) -> bool:
         """Check if a gate is enabled in the configuration."""
         # If gate has explicit config, it's enabled

@@ -280,6 +280,9 @@ async def create_context(
                 resource_request_headers=None
             )
         
+            # Ensure gate_args retains finalized WebGL config for later reuse
+            gate_args["WebGLGate"] = enhanced_gate_args["WebGLGate"]
+        
         # Apply playwright-stealth if available (Chromium only)
         if engine == "chromium":
             await _apply_stealth(context)

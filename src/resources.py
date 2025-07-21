@@ -248,7 +248,7 @@ async def handle_response(
     
     # If file was already saved by CDP interceptor, we're done
     if response.url in resources.url_to_file:
-        print(f"[INFO] Metadata updated for CDP-saved file: {url[:80]}…")
+        debug_print(f"[DEBUG] Metadata updated for CDP-saved file: {url[:80]}…")
         _validate_metadata_completeness(url, resources, "handle_response_post_cdp")
         return
 

@@ -151,6 +151,9 @@ async def _grab(                     # noqa: C901 – long but linear
 
     page = await context.new_page()
 
+    # Set up page-specific handlers (like worker synchronization)
+    await spoofing_manager.setup_page_handlers(page, context, gate_config)
+
     is_chromium = page.context.browser.browser_type.name == "chromium"
 
     if is_chromium:

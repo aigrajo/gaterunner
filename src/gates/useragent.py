@@ -14,6 +14,7 @@ from src.clienthints import (
     generate_sec_ch_ua_full_version_list,
 )
 from .base import GateBase
+from ..debug import debug_print
 
 # ───────────────────────── types ──────────────────────────
 
@@ -57,9 +58,65 @@ class UserAgentGate(GateBase):
 
         return headers
 
+    def build_spoof_js(self, navigator_ref="navigator", window_ref="window", **kwargs):
+        """
+        Build spoofing JavaScript using external template file.
+        """
+        import json, textwrap, pathlib
+        # Cache template
+        if not hasattr(self, "_worker_template"):
+            template_path = pathlib.Path(__file__).resolve().parent.parent / "js" / "worker_spoof_template.js"
+            self._worker_template = template_path.read_text(encoding="utf-8")
+        template = self._worker_template
+        # Prepare values
+        spoof_json = json.dumps(kwargs.get("uadata", {})) if "uadata" in kwargs else None  # note
+        if spoof_json is None:
+            # rebuild uadata as before
+            uadata = {
+                "brands": [
+                    {"brand": kwargs.get("brand", "Chromium"), "version": kwargs.get("brand_v", "114")},
+                    {"brand": "Chromium", "version": kwargs.get("brand_v", "114")},
+                    {"brand": "Not A;Brand", "version": "99"}
+                ],
+                "mobile": kwargs.get("mobile", False),
+                "platform": "Windows" if kwargs.get("platform", "Win32") == "Win32" else kwargs.get("platform", "Win32"),
+                "architecture": kwargs.get("architecture", "x86"),
+                "bitness": kwargs.get("bitness", "64"),
+                "model": kwargs.get("model", ""),
+                "platformVersion": kwargs.get("platformVersion", "10.0.0"),
+                "uaFullVersion": kwargs.get("uaFullVersion", "114.0.0.0"),
+                "fullVersionList": [
+                    {"brand": kwargs.get("brand", "Chromium"), "version": kwargs.get("uaFullVersion", "114.0.0.0")},
+                    {"brand": "Chromium", "version": kwargs.get("uaFullVersion", "114.0.0.0")},
+                    {"brand": "Not A;Brand", "version": "99.0.0.0"}
+                ]
+            }
+            spoof_json = json.dumps(uadata,separators=(",", ":"))
+        languages = kwargs.get("languages", ["en-US","en"])
+        languages_json = json.dumps(languages)
+        device_memory = kwargs.get("rand_mem",8)
+        hc_map={4:4,6:4,8:4,12:8,16:8,24:12,32:16}
+        hardware_concurrency=hc_map.get(device_memory,4)
+        formatted = template.format(
+            nav_ref=navigator_ref,
+            win_ref=window_ref,
+            spoof_json=spoof_json,
+            platform=kwargs.get("platform","Win32"),
+            user_agent=kwargs.get("user_agent",""),
+            device_memory=device_memory,
+            hardware_concurrency=hardware_concurrency,
+            language=languages[0],
+            languages_json=languages_json,
+            webgl_vendor=kwargs.get("webgl_vendor","Intel Inc."),
+            webgl_renderer=kwargs.get("webgl_renderer","Intel(R) HD Graphics 530"),
+            timezone=kwargs.get("timezone_id","UTC")
+        )
+        return textwrap.dedent(formatted)
+
     async def handle(self, page, context, user_agent=None, **kwargs):
         """
         Tracks Accept-CH responses by origin for dynamic client hints injection.
+        Worker synchronization is handled in setup_page_handlers() after page creation.
         """
         if not user_agent or not send_ch(user_agent):
             return
@@ -75,6 +132,73 @@ class UserAgentGate(GateBase):
                 print(f"[GATE] Accept-CH for {origin}: {accept_ch_by_origin[origin]}")
 
         context.on("response", lambda resp: asyncio.create_task(_track(resp)))
+
+        # ── Add worker init script so even early workers get patched ──
+        try:
+            template_vars = self.get_js_template_vars(user_agent=user_agent, **kwargs)
+            # Merge GPU vendor/renderer if available
+            if "webgl_vendor" in kwargs:
+                template_vars["webgl_vendor"] = kwargs["webgl_vendor"]
+            if "webgl_renderer" in kwargs:
+                template_vars["webgl_renderer"] = kwargs["webgl_renderer"]
+
+            vendor   = template_vars.get("webgl_vendor", "Intel Inc.")
+            renderer = template_vars.get("webgl_renderer", "Intel(R) Iris(R) Plus Graphics 640")
+            worker_init_js = self.build_spoof_js("self.navigator", "self", **template_vars)
+            await context.add_init_script(worker_init_js)
+            debug_print(f"[DEBUG] Worker init script added – vendor: {vendor} | renderer: {renderer}")
+            if vendor == "Intel Inc." and renderer.startswith("Intel("):
+                debug_print(f"[DEBUG] GPU spoof defaulted to hard-coded Intel values!")
+        except Exception as e:
+            debug_print(f"[DEBUG] Failed to inject worker init script: {e}")
+
+    async def setup_page_handlers(self, page, context, user_agent=None, **kwargs):
+        """
+        Set up page-specific handlers like worker synchronization.
+        This is called after page creation.
+        """
+        if not user_agent:
+            return
+            
+        debug_print(f"[DEBUG] Setting up worker synchronization...")
+        
+        # Get template variables for worker script generation
+        template_vars = self.get_js_template_vars(user_agent=user_agent, **kwargs)
+
+        # --- NEW: merge dynamic GPU values from kwargs ---
+        if "webgl_vendor" in kwargs:
+            template_vars["webgl_vendor"] = kwargs["webgl_vendor"]
+        if "webgl_renderer" in kwargs:
+            template_vars["webgl_renderer"] = kwargs["webgl_renderer"]
+
+        debug_print(f"[DEBUG] GPU vars → vendor: {template_vars.get('webgl_vendor')} | renderer: {template_vars.get('webgl_renderer')}")
+        # --------------------------------------------------
+
+        # Generate worker script using the same approach as the working script
+        worker_script = self.build_spoof_js("self.navigator", "self", **template_vars)
+        
+        # Set up worker event handlers like the working script
+        async def handle_worker(worker):
+            try:
+                debug_print(f"[DEBUG] Injecting spoof script into worker: {worker.url}")
+                await worker.evaluate(worker_script)
+                debug_print(f"[DEBUG] Successfully spoofed worker: {worker.url}")
+            except Exception as e:
+                debug_print(f"[DEBUG] Failed to spoof worker {worker.url}: {e}")
+        
+        async def handle_service_worker(worker):
+            try:
+                debug_print(f"[DEBUG] Injecting spoof script into service worker: {worker.url}")
+                await worker.evaluate(worker_script)
+                debug_print(f"[DEBUG] Successfully spoofed service worker: {worker.url}")
+            except Exception as e:
+                debug_print(f"[DEBUG] Failed to spoof service worker {worker.url}: {e}")
+        
+        # Register event handlers (same pattern as working script)
+        page.on("worker", lambda worker: asyncio.create_task(handle_worker(worker)))
+        context.on("serviceworker", lambda worker: asyncio.create_task(handle_service_worker(worker)))
+        
+        debug_print(f"[DEBUG] Worker event handlers registered successfully")
 
     def inject_headers(self, request):
         """
@@ -185,7 +309,7 @@ class UserAgentGate(GateBase):
             "bitness": entropy.get("bitness", "64"),
             "wow64": str(bool(entropy.get("wow64", False))).lower(),
             "model": entropy.get("model", ""),
-            "mobile": str(mobile_flag).lower(),
+            "mobile": mobile_flag,
             "platform": js_platform,  # Use mapped JavaScript platform value
             "platformVersion": entropy.get("platformVersion", "15.0"),
             
