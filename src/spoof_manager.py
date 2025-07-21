@@ -93,7 +93,7 @@ class SpoofingManager:
                             if "timezone_id" in timezone_vars:
                                 args["timezone_id"] = timezone_vars["timezone_id"]
                     
-                    print(f"[DEBUG] _apply_http_spoofing -> UserAgentGate handle args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')} timezone={args.get('timezone_id', 'UTC')}")
+                    debug_print(f"[DEBUG] _apply_http_spoofing -> UserAgentGate handle args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')} timezone={args.get('timezone_id', 'UTC')}")
                 await gate.handle(page, context, **args, url=url)
         
         # Collect headers from all enabled gates
@@ -154,7 +154,7 @@ class SpoofingManager:
                 timezone_vars = gate.get_js_template_vars(**args)
                 if "timezone_id" in timezone_vars:
                     selected_timezone = timezone_vars["timezone_id"]
-                    print(f"[DEBUG] Using timezone from TimezoneGate: {selected_timezone}")
+                    debug_print(f"[DEBUG] Using timezone from TimezoneGate: {selected_timezone}")
                 break
         
         for gate in self.gates:
@@ -272,7 +272,7 @@ class SpoofingManager:
                             if "timezone_id" in timezone_vars:
                                 args["timezone_id"] = timezone_vars["timezone_id"]
                     
-                    print(f"[DEBUG] apply_spoofing -> UserAgentGate args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')} timezone={args.get('timezone_id', 'UTC')}")
+                    debug_print(f"[DEBUG] apply_spoofing -> UserAgentGate args: vendor={args.get('webgl_vendor')} renderer={args.get('webgl_renderer')} timezone={args.get('timezone_id', 'UTC')}")
                 try:
                     await gate.setup_page_handlers(page, context, **args)
                     debug_print(f"[DEBUG] Set up page handlers for {gate.name}")

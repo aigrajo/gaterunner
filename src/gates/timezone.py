@@ -8,6 +8,7 @@ with realistic timezones that match the user's geographic selection.
 import random
 from pathlib import Path
 from .base import GateBase
+from ..debug import debug_print
 
 
 class TimezoneGate(GateBase):
@@ -43,7 +44,7 @@ class TimezoneGate(GateBase):
                     timezones_by_country[country_code].append(timezone)
             
             self._timezones_cache = timezones_by_country
-            print(f"[{self.name}] Loaded timezones for {len(timezones_by_country)} countries from zone.tab")
+            debug_print(f"[DEBUG] Loaded timezones for {len(timezones_by_country)} countries from zone.tab")
         
         return self._timezones_cache
     
@@ -63,10 +64,10 @@ class TimezoneGate(GateBase):
         if country_code in timezones_by_country:
             timezones = timezones_by_country[country_code]
             selected = random.choice(timezones)
-            print(f"[{self.name}] Selected timezone for {country_code}: {selected} (from {len(timezones)} options)")
+            debug_print(f"[DEBUG] Selected timezone for {country_code}: {selected} (from {len(timezones)} options)")
             return selected
         else:
-            print(f"[{self.name}] No timezones found for {country_code}, using UTC")
+            debug_print(f"[DEBUG] No timezones found for {country_code}, using UTC")
             return "UTC"
     
     async def handle(self, page, context, **kwargs):
