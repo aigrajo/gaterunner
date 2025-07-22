@@ -234,27 +234,15 @@ async def _grab(                     # noqa: C901 – long but linear
 ):
     """Navigate, collect artefacts, then optionally pause for user inspection."""
     
-    # Detect browser engine from user agent using centralized method
-    engine = config.detect_engine_from_ua()
-    
     # Build gate configuration using centralized method
     gate_config = config.get_gate_config()
-    debug_print(f"[DEBUG] Setting browser_engine in gate_config: {config.engine}")
+    debug_print(f"[DEBUG] Page-level setup for URL: {url}")
     
-    # Apply spoofing using SpoofingManager
-    spoofing_manager = SpoofingManager()
-    await spoofing_manager.apply_spoofing(
-        page=None,  # Page is created after spoofing setup
-        context=context,
-        gate_config=gate_config,
-        engine=engine,
-        url=url,
-        resource_request_headers=resources.request_headers
-    )
-
+    # Create page (spoofing was already applied during context creation)
     page = await context.new_page()
 
     # Set up page-specific handlers (like worker synchronization)
+    spoofing_manager = SpoofingManager()
     await spoofing_manager.setup_page_handlers(page, context, gate_config)
 
     is_chromium = page.context.browser.browser_type.name == "chromium"
@@ -273,6 +261,16 @@ async def _grab(                     # noqa: C901 – long but linear
     page.on("request",  lambda r: asyncio.create_task(handle_request(r, resources)))
     page.on("response", lambda r: asyncio.create_task(
         handle_response(r, out_dir, resources)))
+    
+    # Capture request headers for debugging (was previously done in duplicate apply_spoofing call)
+    async def capture_request_headers(route, request):
+        resources.request_headers[request.url] = {
+            "method": request.method,
+            **dict(request.headers)
+        }
+        await route.continue_()
+    
+    await page.route("**/*", capture_request_headers)
     downloads: list[asyncio.Task] = []
     page.on("download", lambda dl: downloads.append(
         asyncio.create_task(_save_download(dl, out_dir, resources))))

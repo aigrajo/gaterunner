@@ -100,16 +100,50 @@ def jitter_country_location(cc: str) -> dict[str, float]:
 class GeolocationGate(GateBase):
     name = 'GeolocationGate'
 
-    async def handle(self, page, context, geolocation=None, url=None):
-        if geolocation and url:
-            parsed_url = urlparse(url)
-            origin = f'{parsed_url.scheme}://{parsed_url.netloc}'
-
-            print(f"[GATE] Granted geolocation permissions: {geolocation}")
-            if url.startswith('https://') or url.startswith('http://localhost'):
-                await context.grant_permissions(['geolocation'], origin=url)
-            else:
-                await context.grant_permissions(['geolocation'])
-
+    async def handle(self, page, context, geolocation=None, **kwargs):
+        """
+        Set up geolocation spoofing via JavaScript API replacement.
+        No longer grants browser permissions - uses JS spoofing to avoid TDS detection.
+        """
+        if geolocation:
+            lat = geolocation['latitude']
+            lng = geolocation['longitude'] 
+            acc = geolocation['accuracy']
+            print(f"[GATE] Will spoof geolocation to: {lat}, {lng} (±{acc}m)")
             return True
         return False
+
+    async def get_headers(self, **kwargs):
+        """
+        Geolocation gate doesn't add HTTP headers.
+        """
+        return {}
+
+    def get_js_patches(self, engine="chromium", geolocation=None, browser_engine=None, **kwargs):
+        """
+        Return JavaScript patches for geolocation API spoofing.
+        """
+        # Disable patches for patchright and camoufox (they have built-in stealth)
+        if browser_engine in ["patchright", "camoufox"]:
+            return []
+        
+        # Apply geolocation spoofing if coordinates are provided
+        if geolocation:
+            return ["geolocation_spoof.js"]
+        return []
+
+    def get_js_template_vars(self, geolocation=None, **kwargs):
+        """
+        Return template variables for geolocation JavaScript spoofing.
+        
+        @param geolocation: Dict with latitude, longitude, accuracy from jitter_country_location()
+        @return: Dict of template variables for geolocation_spoof.js
+        """
+        if not geolocation:
+            return {}
+        
+        return {
+            "__LATITUDE__": geolocation['latitude'],
+            "__LONGITUDE__": geolocation['longitude'], 
+            "__ACCURACY__": geolocation['accuracy'],
+        }
