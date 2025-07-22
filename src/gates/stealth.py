@@ -34,16 +34,21 @@ class StealthGate(GateBase):
         """
         return {}
     
-    def get_js_patches(self, engine="chromium", enabled=True, use_isolation=False, **kwargs):
+    def get_js_patches(self, engine="chromium", enabled=True, use_isolation=False, browser_engine=None, **kwargs):
         """
         Return JavaScript patches for general stealth protection.
         
         @param engine: Browser engine ("chromium", "firefox", "webkit")
         @param enabled: Whether stealth patches should be applied
         @param use_isolation: Whether to use Patchright-style isolated execution (experimental)
+        @param browser_engine: Browser engine choice ("playwright", "patchright", "camoufox")
         @return: List of JS patch file names
         """
         if not enabled:
+            return []
+        
+        # Disable patches for patchright and camoufox (they have built-in stealth)
+        if browser_engine in ["patchright", "camoufox"]:
             return []
         
         patches = self.GENERAL_PATCHES.copy()

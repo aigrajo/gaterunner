@@ -68,9 +68,10 @@ class UserAgentGate(GateBase):
             template_path = pathlib.Path(__file__).resolve().parent.parent / "js" / "worker_spoof_template.js"
             self._worker_template = template_path.read_text(encoding="utf-8")
         template = self._worker_template
-        # Prepare values
-        spoof_json = json.dumps(kwargs.get("uadata", {})) if "uadata" in kwargs else None  # note
-        if spoof_json is None:
+        
+        # Prepare values for template replacement
+        uadata = kwargs.get("uadata", {})
+        if not uadata:
             # rebuild uadata as before
             uadata = {
                 "brands": [
@@ -91,27 +92,34 @@ class UserAgentGate(GateBase):
                     {"brand": "Not A;Brand", "version": "99.0.0.0"}
                 ]
             }
-            spoof_json = json.dumps(uadata,separators=(",", ":"))
+        
         languages = kwargs.get("languages", ["en-US","en"])
-        languages_json = json.dumps(languages)
-        device_memory = kwargs.get("rand_mem",8)
-        hc_map={4:4,6:4,8:4,12:8,16:8,24:12,32:16}
-        hardware_concurrency=hc_map.get(device_memory,4)
-        formatted = template.format(
-            nav_ref=navigator_ref,
-            win_ref=window_ref,
-            spoof_json=spoof_json,
-            platform=kwargs.get("platform","Win32"),
-            user_agent=kwargs.get("user_agent",""),
-            device_memory=device_memory,
-            hardware_concurrency=hardware_concurrency,
-            language=languages[0],
-            languages_json=languages_json,
-            webgl_vendor=kwargs.get("webgl_vendor","Intel Inc."),
-            webgl_renderer=kwargs.get("webgl_renderer","Intel(R) HD Graphics 530"),
-            timezone=kwargs.get("timezone_id","UTC")
-        )
-        return textwrap.dedent(formatted)
+        device_memory = kwargs.get("rand_mem", 8)
+        hc_map = {4:4, 6:4, 8:4, 12:8, 16:8, 24:12, 32:16}
+        hardware_concurrency = hc_map.get(device_memory, 4)
+        
+        # Template variable replacements
+        template_vars = {
+            "__NAV_REF__": navigator_ref,
+            "__WIN_REF__": window_ref,
+            "__SPOOF_JSON__": json.dumps(uadata, separators=(",", ":")),
+            "__PLATFORM__": kwargs.get("platform", "Win32"),
+            "__USER_AGENT__": kwargs.get("user_agent", ""),
+            "__DEVICE_MEMORY__": str(device_memory),
+            "__HARDWARE_CONCURRENCY__": str(hardware_concurrency),
+            "__LANGUAGE__": languages[0],
+            "__LANGUAGES_JSON__": json.dumps(languages),
+            "__WEBGL_VENDOR__": kwargs.get("webgl_vendor", "Intel Inc."),
+            "__WEBGL_RENDERER__": kwargs.get("webgl_renderer", "Intel(R) HD Graphics 530"),
+            "__TIMEZONE__": kwargs.get("timezone_id", "UTC")
+        }
+        
+        # Apply template replacements
+        rendered = template
+        for placeholder, value in template_vars.items():
+            rendered = rendered.replace(placeholder, str(value))
+        
+        return textwrap.dedent(rendered)
 
     async def handle(self, page, context, user_agent=None, **kwargs):
         """
@@ -237,13 +245,17 @@ class UserAgentGate(GateBase):
 
         return headers
 
-    def get_js_patches(self, engine="chromium", user_agent=None, **kwargs):
+    def get_js_patches(self, engine="chromium", user_agent=None, browser_engine=None, **kwargs):
         """
         Return JavaScript patches needed for user-agent spoofing.
         
         Consolidates browser API spoofing that was previously in context.py.
         """
         if not user_agent:
+            return []
+        
+        # Disable patches for patchright and camoufox (they have built-in stealth)
+        if browser_engine in ["patchright", "camoufox"]:
             return []
         
         if engine == "chromium":
@@ -343,11 +355,13 @@ class UserAgentGate(GateBase):
             "__PLATFORM__": js_platform,  # Use mapped JavaScript platform value
             "__MOBILE__": str(mobile_flag).lower(),
             "__ARCH__": entropy.get("architecture", "x86"),
+            "__ARCHITECTURE__": entropy.get("architecture", "x86"),  # Alias for consistency
             "__BITNESS__": entropy.get("bitness", "64"),
             "__MODEL__": entropy.get("model", ""),
             "__PLATFORM_VERSION__": entropy.get("platformVersion", "15.0"),
             "__UA_FULL_VERSION__": parse_chromium_full_version(user_agent) or chromium_v,
             "__WOW64__": str(bool(entropy.get("wow64", False))).lower(),
+            "__CHROMIUM_V__": chromium_v or "",  # For spoof_useragent.js
         }
         
         return template_vars

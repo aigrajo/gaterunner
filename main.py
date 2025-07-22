@@ -8,8 +8,6 @@ from urllib.parse import urlparse
 
 from src.browser import Config
 from src.resources import ResourceData
-from src.gates.geolocation import COUNTRY_GEO, jitter_country_location
-from src.gates.useragent import choose_ua
 from src.browser import save_page
 from src.debug import set_verbose
 
@@ -39,14 +37,6 @@ def is_valid_url(url: str) -> bool:
         return False
 
 
-def is_valid_proxy(proxy: str) -> bool:
-    return re.fullmatch(r"(socks5|http)://.+:\d{2,5}", proxy) is not None
-
-
-def is_valid_lang(lang: str) -> bool:
-    return re.fullmatch(r"[a-z]{2,3}(-[A-Z]{2})?$", lang) is not None
-
-
 def deobfuscate_url(text: str) -> str:
     return (
         text.replace("hxxp://", "http://")
@@ -57,69 +47,35 @@ def deobfuscate_url(text: str) -> str:
 
 # ─── single‑URL crawler ─────────────────────────────────────────
 
-def run_single_url(url: str, args):
+def run_single_url_from_args(url: str, args):
+    """Run single URL using command line arguments."""
+    # Build configuration object using centralized method
+    try:
+        config = Config.from_args(args)
+    except ValueError as e:
+        print(f"[ERROR] {e}")
+        return
+    
+    run_single_url(url, config)
+
+
+def run_single_url(url: str, config: Config):
+    """Run single URL using configuration object."""
     if not is_valid_url(url):
         print("[ERROR] Invalid URL:", url)
         return
-
-    # Build configuration object
-    config = Config()
     
     # Set debug output based on verbose flag
-    set_verbose(args.verbose)
-    
-    if args.country:
-        cc = args.country.upper()
-        if cc not in COUNTRY_GEO:
-            print(f"[ERROR] Invalid country code: {cc}")
-            return
-        config.gates_enabled["GeolocationGate"] = True
-        config.gate_args["GeolocationGate"] = {"geolocation": jitter_country_location(cc)}
-        # Enable TimezoneGate with country code for dynamic timezone selection
-        config.gates_enabled["TimezoneGate"] = True
-        config.gate_args["TimezoneGate"] = {"country": cc}
-
-    if args.lang and not is_valid_lang(args.lang):
-        print(f"[ERROR] Invalid language: {args.lang}")
-        return
-    if args.lang:
-        config.gates_enabled["LanguageGate"] = True
-        config.gate_args["LanguageGate"] = {"language": args.lang}
-
-    if args.ua_full:
-        config.gates_enabled["UserAgentGate"] = True
-        ua_value = args.ua_full.strip()
-        config.gate_args["UserAgentGate"] = {
-            "user_agent": ua_value,
-            "ua_arg": ua_value,  # used later for engine selection
-        }
-    elif args.ua:
-        config.gates_enabled["UserAgentGate"] = True
-        resolved_ua = choose_ua(args.ua)
-        config.gate_args["UserAgentGate"] = {
-            "user_agent": resolved_ua,
-            "ua_arg": args.ua,
-        }
-
-    config.proxy = {"server": args.proxy} if args.proxy and is_valid_proxy(args.proxy) else None
-    if args.proxy and not config.proxy:
-        print("[ERROR] Invalid proxy format.")
-        return
-
-    # Set other configuration values
-    config.engine = args.engine
-    config.interactive = args.headful
-    config.timeout_sec = int(args.timeout)
-    config.verbose = args.verbose
+    set_verbose(config.verbose)
     
     # Create resource tracker
     resources = ResourceData()
     
     domain = urlparse(url).netloc.replace(":", "_")
     run_id = os.getenv("RUN_ID", "default")
-    out_dir = f"{args.output_dir}/{run_id}/saved_{domain}"
+    out_dir = f"{config.output_dir}/{run_id}/saved_{domain}"
 
-    if not args.plain_progress:
+    if not config.plain_progress:
         print(f"[INFO] Running Gaterunner for {url}")
         print(f"[INFO] Output directory: {out_dir}")
 
@@ -140,7 +96,7 @@ def run_single_url(url: str, args):
     def _run():
         asyncio.run(_crawl())
 
-    if args.headful:
+    if config.interactive:
         _run()  # visible browser windows as requested
     else:
         # Invisible virtual display so the GUI has an X server but stays off‑screen
@@ -196,7 +152,7 @@ def _worker(url_line: str):
     if _STATUS_DICT is not None:
         _STATUS_DICT[pid] = url[:80]
     try:
-        run_single_url(url, _GLOBAL_ARGS)
+        run_single_url_from_args(url, _GLOBAL_ARGS)
         return True
     finally:
         if _STATUS_DICT is not None:
@@ -204,13 +160,13 @@ def _worker(url_line: str):
 
 # ─── serial batch (no workers flag) ─────────────────────────────
 
-def run_batch_serial(urls: List[str], args):
+def run_batch_serial(urls: List[str], config: Config):
     total = len(urls)
     start = time.time()
     done = 0
     for raw in urls:
         url = deobfuscate_url(raw)
-        run_single_url(url, args)
+        run_single_url(url, config)
         done += 1
         sys.stdout.write(f"\r[PROGRESS] {done}/{total} done\n")
         sys.stdout.flush()
@@ -255,7 +211,7 @@ def main():
         "--engine",
         choices=["auto", "playwright", "camoufox", "patchright"],
         default="auto",
-        help="Browser engine: 'auto' (heuristic), 'playwright', 'camoufox', or 'patchright'",
+        help="Browser engine: 'auto' (heuristic), 'playwright' (with stealth patches), 'camoufox' (no patches), or 'patchright' (no patches)",
     )
 
     parser.add_argument(
@@ -298,7 +254,7 @@ def main():
 
     target = deobfuscate_url(args.input.strip())
     if is_valid_url(target):
-        run_single_url(target, args)
+        run_single_url_from_args(target, args)
         return
 
     if not os.path.isfile(args.input.strip()):
@@ -308,9 +264,16 @@ def main():
     with open(args.input.strip()) as f:
         urls = [ln.strip() for ln in f if ln.strip()]
 
+    # Build configuration for batch processing
+    try:
+        config = Config.from_args(args)
+    except ValueError as e:
+        print(f"[ERROR] {e}")
+        sys.exit(1)
+
     # ── serial mode ────────────────────────────────────────────
-    if not args.workers or args.workers < 2:
-        run_batch_serial(urls, args)
+    if not config.workers or config.workers < 2:
+        run_batch_serial(urls, config)
         return
 
     # ── parallel mode ─────────────────────────────────────────
@@ -325,18 +288,18 @@ def main():
     done = 0
 
     with multiprocessing.Pool(
-        processes=args.workers,
+        processes=config.workers,
         initializer=_init_pool,
         initargs=(args, status_dict),
     ) as pool:
         for _ in pool.imap_unordered(_worker, urls):
             done += 1
-            if args.plain_progress:
+            if config.plain_progress:
                 print(f"{done}/{total} done")
             else:
                 _draw_screen(done, total, start_ts, dict(status_dict))
 
-    if not args.plain_progress:
+    if not config.plain_progress:
         print("\nRun finished. Logs in ./logs/" + run_id)
 
 

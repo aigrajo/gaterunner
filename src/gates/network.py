@@ -42,10 +42,14 @@ class NetworkGate(GateBase):
         """
         return {}
     
-    def get_js_patches(self, engine="chromium", connection_profile="wifi", **kwargs):
+    def get_js_patches(self, engine="chromium", connection_profile="wifi", browser_engine=None, **kwargs):
         """
         Return JavaScript patches for network information spoofing.
         """
+        # Disable patches for patchright and camoufox (they have built-in stealth)
+        if browser_engine in ["patchright", "camoufox"]:
+            return []
+        
         # Only apply if we have a connection profile configured
         if connection_profile:
             return ["network_info_stub.js"]

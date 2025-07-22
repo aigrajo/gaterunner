@@ -7,6 +7,7 @@ the expected hardware for the given user agent.
 
 import random
 from .base import GateBase
+from ..clienthints import detect_os_family
 
 
 class WebGLGate(GateBase):
@@ -57,10 +58,14 @@ class WebGLGate(GateBase):
         """
         return {}
     
-    def get_js_patches(self, engine="chromium", webgl_vendor=None, webgl_renderer=None, user_agent=None, **kwargs):
+    def get_js_patches(self, engine="chromium", webgl_vendor=None, webgl_renderer=None, user_agent=None, browser_engine=None, **kwargs):
         """
         Return JavaScript patches for WebGL spoofing.
         """
+        # Disable patches for patchright and camoufox (they have built-in stealth)
+        if browser_engine in ["patchright", "camoufox"]:
+            return []
+        
         # Apply WebGL patch if we have explicit vendor/renderer OR user agent to auto-detect from
         if (webgl_vendor and webgl_renderer) or user_agent:
             return ["webgl_patch.js"]
@@ -93,7 +98,7 @@ class WebGLGate(GateBase):
         """
         Pick a realistic WebGL vendor/renderer pair based on user agent OS.
         """
-        os_family = self._ua_os_family(user_agent)
+        os_family = detect_os_family(user_agent)
         
         if os_family in self.WEBGL_BY_OS:
             pool = self.WEBGL_BY_OS[os_family]
@@ -103,17 +108,4 @@ class WebGLGate(GateBase):
         
         return random.choice(pool)
     
-    def _ua_os_family(self, ua: str) -> str:
-        """Detect OS family from user agent string."""
-        low = ua.lower()
-        if "windows" in low:
-            return "windows"
-        if "mac os" in low or "macos" in low:
-            return "mac"
-        if "android" in low:
-            return "android"
-        if any(tok in low for tok in ("iphone", "ipad", "ios")):
-            return "ios"
-        if "cros" in low or "chrome os" in low:
-            return "chromeos"
-        return "linux" 
+ 

@@ -1,56 +1,55 @@
 /**
  * worker_spoof_template.js – Template for spoofing navigator properties inside
  * Web Workers and Service Workers.
- * Placeholders like {platform} are filled by Python .format().
- * All non-placeholder braces are doubled to escape them.
+ * Placeholders like __PLATFORM__ are filled by the SpoofingManager.
  */
 
-(() => {{
-    const nav = {nav_ref};
-    const spoof = {spoof_json};
+(() => {
+    const nav = __NAV_REF__;
+    const spoof = __SPOOF_JSON__;
 
     const def = (obj, key, val) =>
-        Object.defineProperty(obj, key, {{ get: () => val }});
+        Object.defineProperty(obj, key, { get: () => val });
 
-    def(nav, 'platform', '{platform}');
-    def(nav, 'userAgent', '{user_agent}');
-    def(nav, 'deviceMemory', {device_memory});
-    def(nav, 'hardwareConcurrency', {hardware_concurrency});
-    def(nav, 'language', '{language}');
-    def(nav, 'languages', {languages_json});
+    def(nav, 'platform', '__PLATFORM__');
+    def(nav, 'userAgent', '__USER_AGENT__');
+    def(nav, 'deviceMemory', __DEVICE_MEMORY__);
+    def(nav, 'hardwareConcurrency', __HARDWARE_CONCURRENCY__);
+    def(nav, 'language', '__LANGUAGE__');
+    def(nav, 'languages', __LANGUAGES_JSON__);
 
-    const uaData = {{
+    const uaData = {
         ...spoof,
-        getHighEntropyValues: async (hints) => {{
-            const result = {{}};
-            for (const k of hints) {{
+        getHighEntropyValues: async (hints) => {
+            const result = {};
+            for (const k of hints) {
                 if (k in spoof) result[k] = spoof[k];
-            }}
+            }
             return result;
-        }},
+        },
         toJSON: () => spoof
-    }};
-    Object.defineProperty(nav, 'userAgentData', {{ get: () => uaData }});
+    };
+    Object.defineProperty(nav, 'userAgentData', { get: () => uaData });
 
-    const spoofWebGL = (proto) => {{
+    const spoofWebGL = (proto) => {
         const orig = proto.getParameter;
-        proto.getParameter = function (p) {{
-            if (p === 37445) return '{webgl_vendor}';
-            if (p === 37446) return '{webgl_renderer}';
+        proto.getParameter = function (p) {
+            if (p === 37445) return '__WEBGL_VENDOR__';
+            if (p === 37446) return '__WEBGL_RENDERER__';
             return orig.call(this, p);
-        }};
-    }};
-    if ({win_ref}.WebGLRenderingContext)
-        spoofWebGL({win_ref}.WebGLRenderingContext.prototype);
-    if ({win_ref}.WebGL2RenderingContext)
-        spoofWebGL({win_ref}.WebGL2RenderingContext.prototype);
+        };
+    };
+    if (__WIN_REF__.WebGLRenderingContext)
+        spoofWebGL(__WIN_REF__.WebGLRenderingContext.prototype);
+    if (__WIN_REF__.WebGL2RenderingContext)
+        spoofWebGL(__WIN_REF__.WebGL2RenderingContext.prototype);
 
-    try {{
+    try {
         const orig = Intl.DateTimeFormat.prototype.resolvedOptions;
-        Intl.DateTimeFormat.prototype.resolvedOptions = function () {{
+        Intl.DateTimeFormat.prototype.resolvedOptions = function () {
             const o = orig.call(this);
-            o.timeZone = '{timezone}';
+            o.timeZone = '__TIMEZONE__';
             return o;
-        }};
-    }} catch (_e) {{}}
-}})(); 
+        };
+    } catch (_e) {}
+})(); 

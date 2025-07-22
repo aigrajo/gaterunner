@@ -3,11 +3,86 @@ clienthints.py
 
 Short library of client hint and high-entropy generation functions.
 Pass a user agent string -> get a client hint value
+
+Also contains consolidated UA parsing utilities used across the project.
 """
 
 import re
 import random
 from ua_parser import user_agent_parser
+
+# ──────────────────────────────
+# Optional: httpagentparser for robust engine detection
+# ──────────────────────────────
+try:
+    import httpagentparser  # type: ignore
+    _HAS_HTTPAGENT = True
+except ImportError:  # library not installed – fallback to simple rules
+    _HAS_HTTPAGENT = False
+
+# ──────────────────────────────
+# Consolidated UA Detection Functions
+# ──────────────────────────────
+
+def detect_os_family(ua: str) -> str:
+    """
+    Detect OS family from user agent string.
+    
+    Consolidated function (was duplicated in context.py and webgl.py).
+    
+    @param ua: User agent string
+    @return: OS family name ("windows", "mac", "android", "ios", "chromeos", "linux")
+    """
+    low = ua.lower()
+    if "windows" in low:
+        return "windows"
+    if "mac os" in low or "macos" in low:
+        return "mac"
+    if "android" in low:
+        return "android"
+    if any(tok in low for tok in ("iphone", "ipad", "ios")):
+        return "ios"
+    if "cros" in low or "chrome os" in low:
+        return "chromeos"
+    return "linux"
+
+
+def detect_engine_from_ua(ua: str) -> str:
+    """
+    Detect browser engine from user agent string.
+    
+    Consolidated function that reuses the logic from send_ch() but returns engine names.
+    
+    @param ua: User agent string
+    @return: Engine name ("chromium", "firefox", "webkit")
+    """
+    if _HAS_HTTPAGENT:
+        try:
+            parsed = httpagentparser.detect(ua)  # type: ignore
+            browser = (parsed.get("browser") or {})
+            name = (browser.get("name") or "").lower()
+            if "firefox" in name:
+                return "firefox"
+            if "safari" in name and "chrome" not in name:
+                return "webkit"
+            return "chromium"
+        except Exception:
+            pass  # Fall through to simple heuristics
+    
+    # Reuse logic from send_ch() function for consistency
+    ua_lower = ua.lower()
+    
+    # Explicitly check for Firefox (same logic as send_ch)
+    if 'firefox' in ua_lower and 'seamonkey' not in ua_lower:
+        return "firefox"
+    
+    # Check for Safari (same logic as send_ch)
+    if 'safari' in ua_lower and 'chrome' not in ua_lower and 'chromium' not in ua_lower:
+        return "webkit"
+    
+    # Everything else is considered Chromium-based (same as send_ch default)
+    return "chromium"
+
 
 ARCH_PATTERNS = [
     # key substrings -> (architecture, bitness, wow64 flag)

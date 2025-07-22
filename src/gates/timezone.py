@@ -82,11 +82,15 @@ class TimezoneGate(GateBase):
         """
         return {}
     
-    def get_js_patches(self, engine="chromium", country=None, **kwargs):
+    def get_js_patches(self, engine="chromium", country=None, browser_engine=None, **kwargs):
         """
         Return JavaScript patches for timezone spoofing.
         Only apply if we have a country (otherwise keep system timezone).
         """
+        # Disable patches for patchright and camoufox (they have built-in stealth)
+        if browser_engine in ["patchright", "camoufox"]:
+            return []
+        
         if country:
             return ["timezone_spoof.js"]
         return []

@@ -16,20 +16,131 @@ from playwright._impl._errors import TargetClosedError
 from playwright.async_api import async_playwright as async_pw, Error
 
 from .cdp_logger import attach_cdp_logger
+from .debug import debug_print
 
 # ───────────────────────── data structures ──────────────────────────
 
 @dataclass
 class Config:
-    """Bundle all configuration data together."""
-    gates_enabled: dict = field(default_factory=dict)
-    gate_args: dict = field(default_factory=dict)
-    proxy: Optional[dict] = None
+    """Centralized configuration for all gaterunner functionality."""
+    
+    # ─── Application Configuration ───
     engine: str = "auto"
     headless: bool = False
     interactive: bool = False
     timeout_sec: int = 30
     verbose: bool = False
+    output_dir: str = "./data"
+    plain_progress: bool = False
+    workers: Optional[int] = None
+    
+    # ─── Network Configuration ───
+    proxy: Optional[dict] = None
+    
+    # ─── Gate Configuration (Spoofing Settings) ───
+    gates_enabled: dict = field(default_factory=dict)
+    gate_args: dict = field(default_factory=dict)
+    
+    # ─── Detected Configuration (Set during runtime) ───
+    detected_engine: Optional[str] = field(default=None, init=False)
+    
+    @classmethod
+    def from_args(cls, args) -> 'Config':
+        """Create a Config instance from command line arguments."""
+        config = cls()
+        
+        # Application settings
+        config.engine = args.engine
+        config.interactive = args.headful
+        config.timeout_sec = int(args.timeout)
+        config.verbose = args.verbose
+        config.output_dir = args.output_dir
+        config.plain_progress = args.plain_progress
+        config.workers = args.workers
+        
+        # Network settings
+        if args.proxy and _is_valid_proxy(args.proxy):
+            config.proxy = {"server": args.proxy}
+        
+        # Gate configuration
+        config._configure_geolocation_gate(args)
+        config._configure_language_gate(args)
+        config._configure_useragent_gate(args)
+        
+        return config
+    
+    def _configure_geolocation_gate(self, args):
+        """Configure GeolocationGate and related gates."""
+        from src.gates.geolocation import COUNTRY_GEO, jitter_country_location
+        
+        if args.country:
+            cc = args.country.upper()
+            if cc not in COUNTRY_GEO:
+                raise ValueError(f"Invalid country code: {cc}")
+            
+            self.gates_enabled["GeolocationGate"] = True
+            self.gate_args["GeolocationGate"] = {"geolocation": jitter_country_location(cc)}
+            
+            # Enable TimezoneGate with country code for dynamic timezone selection
+            self.gates_enabled["TimezoneGate"] = True
+            self.gate_args["TimezoneGate"] = {"country": cc}
+    
+    def _configure_language_gate(self, args):
+        """Configure LanguageGate."""
+        if args.lang:
+            if not _is_valid_lang(args.lang):
+                raise ValueError(f"Invalid language: {args.lang}")
+            
+            self.gates_enabled["LanguageGate"] = True
+            self.gate_args["LanguageGate"] = {"language": args.lang}
+    
+    def _configure_useragent_gate(self, args):
+        """Configure UserAgentGate."""
+        from src.gates.useragent import choose_ua
+        
+        if args.ua_full:
+            ua_value = args.ua_full.strip()
+            self.gates_enabled["UserAgentGate"] = True
+            self.gate_args["UserAgentGate"] = {
+                "user_agent": ua_value,
+                "ua_arg": ua_value,  # used later for engine selection
+            }
+        elif args.ua:
+            resolved_ua = choose_ua(args.ua)
+            self.gates_enabled["UserAgentGate"] = True
+            self.gate_args["UserAgentGate"] = {
+                "user_agent": resolved_ua,
+                "ua_arg": args.ua,
+            }
+    
+    def get_gate_config(self) -> dict:
+        """Build complete gate configuration for SpoofingManager."""
+        gate_config = self.gate_args.copy()
+        
+        if self.gates_enabled:
+            gate_config["gates_enabled"] = self.gates_enabled
+        
+        # Add browser engine choice for patch control
+        gate_config["browser_engine"] = self.engine
+        
+        return gate_config
+    
+    def detect_engine_from_ua(self) -> str:
+        """Detect browser engine from user agent if available."""
+        if not self.detected_engine:
+            if self.gate_args and self.gate_args.get("UserAgentGate", {}).get("user_agent"):
+                from src.clienthints import detect_engine_from_ua
+                ua = self.gate_args["UserAgentGate"]["user_agent"]
+                self.detected_engine = detect_engine_from_ua(ua)
+            else:
+                self.detected_engine = "chromium"  # Default
+        
+        return self.detected_engine
+    
+    def get_ua_for_engine_selection(self) -> str:
+        """Get user agent string for engine selection purposes."""
+        return self.gate_args.get("UserAgentGate", {}).get("ua_arg", "")
+
 
 # ────────────── optional engines ──────────────
 try:
@@ -123,20 +234,12 @@ async def _grab(                     # noqa: C901 – long but linear
 ):
     """Navigate, collect artefacts, then optionally pause for user inspection."""
     
-    # Detect browser engine from user agent if available
-    engine = "chromium"  # Default
-    if config.gate_args and config.gate_args.get("UserAgentGate", {}).get("user_agent"):
-        ua = config.gate_args["UserAgentGate"]["user_agent"]
-        low = ua.lower()
-        if "firefox" in low and "seamonkey" not in low:
-            engine = "firefox"
-        elif "safari" in low and "chrome" not in low and "chromium" not in low:
-            engine = "webkit"
+    # Detect browser engine from user agent using centralized method
+    engine = config.detect_engine_from_ua()
     
-    # Build gate configuration
-    gate_config = config.gate_args.copy()
-    if config.gates_enabled:
-        gate_config["gates_enabled"] = config.gates_enabled
+    # Build gate configuration using centralized method
+    gate_config = config.get_gate_config()
+    debug_print(f"[DEBUG] Setting browser_engine in gate_config: {config.engine}")
     
     # Apply spoofing using SpoofingManager
     spoofing_manager = SpoofingManager()
@@ -247,7 +350,7 @@ async def save_page(
             with suppress(Exception):
                 await br.close()
 
-    ua               = config.gate_args.get("UserAgentGate", {}).get("ua_arg", "")
+    ua               = config.get_ua_for_engine_selection()
     want_camoufox    = config.engine == "camoufox"
     want_patchright  = config.engine == "patchright"
     force_playwright = config.engine == "playwright"
@@ -299,3 +402,16 @@ async def save_page(
             accept_downloads=True, headless=config.headless
         )
         await asyncio.wait_for(_run(br, ctx), timeout=config.timeout_sec)
+
+# ─── Helper functions ───
+
+def _is_valid_proxy(proxy: str) -> bool:
+    """Validate proxy format."""
+    import re
+    return re.fullmatch(r"(socks5|http)://.+:\d{2,5}", proxy) is not None
+
+
+def _is_valid_lang(lang: str) -> bool:
+    """Validate language code format."""
+    import re
+    return re.fullmatch(r"[a-z]{2,3}(-[A-Z]{2})?$", lang) is not None

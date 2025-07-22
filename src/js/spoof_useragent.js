@@ -1,27 +1,27 @@
-(() => {{
-  const spoofedUAData = {{
+(() => {
+  const spoofedUAData = {
     brands: [
-      {{ brand: "Chromium",   version: "{chromium_v}" }},
-      {{ brand: "{brand}",    version: "{brand_v}"   }},
-      {{ brand: "Not.A/Brand", version: "99" }}
+      { brand: "Chromium",   version: "__CHROMIUM_V__" },
+      { brand: "__BRAND__",    version: "__BRAND_V__"   },
+      { brand: "Not.A/Brand", version: "99" }
     ],
-    architecture:    "{architecture}",
-    bitness:         "{bitness}",
-    wow64:           {wow64},
-    model:           "{model}",
-    mobile:          {mobile},
-    platform:        "{platform}",
-    platformVersion: "{platformVersion}",
-    uaFullVersion:   "{uaFullVersion}",
+    architecture:    "__ARCHITECTURE__",
+    bitness:         "__BITNESS__",
+    wow64:           __WOW64__,
+    model:           "__MODEL__",
+    mobile:          __MOBILE__,
+    platform:        "__PLATFORM__",
+    platformVersion: "__PLATFORM_VERSION__",
+    uaFullVersion:   "__UA_FULL_VERSION__",
     fullVersionList: [
-      {{ brand: "Chromium", version: "{uaFullVersion}" }},
-      {{ brand: "{brand}",  version: "{uaFullVersion}" }},
-      {{ brand: "Not.A/Brand", version: "99" }}
+      { brand: "Chromium", version: "__UA_FULL_VERSION__" },
+      { brand: "__BRAND__",  version: "__UA_FULL_VERSION__" },
+      { brand: "Not.A/Brand", version: "99" }
 
     ],
 
-    getHighEntropyValues(hints) {{
-      const map = {{
+    getHighEntropyValues(hints) {
+      const map = {
         architecture:    this.architecture,
         bitness:         this.bitness,
         wow64:           this.wow64,
@@ -30,16 +30,16 @@
         platformVersion: this.platformVersion,
         uaFullVersion:   this.uaFullVersion,
         fullVersionList: this.fullVersionList,
-      }};
+      };
       return Promise.resolve(
         Object.fromEntries(hints.map(h => [h, map[h] ?? ""]))
       );
-    }},
-    toJSON() {{ return this; }}
-  }};
+    },
+    toJSON() { return this; }
+  };
 
-  Object.defineProperty(Navigator.prototype, "userAgentData", {{
+  Object.defineProperty(Navigator.prototype, "userAgentData", {
     get: () => spoofedUAData,
     enumerable: true
-  }});
-}})();
+  });
+})();

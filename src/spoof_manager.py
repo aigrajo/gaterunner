@@ -175,8 +175,21 @@ class SpoofingManager:
             if self._is_gate_enabled(gate, gate_config):
                 args = gate_config.get(gate.name, {})
                 
+                # Pass browser_engine from top-level config to each gate
+                if "browser_engine" in gate_config:
+                    args = args.copy()  # Don't modify the original
+                    args["browser_engine"] = gate_config["browser_engine"]
+                
                 # Get JS patches for this gate
                 patch_names = gate.get_js_patches(engine=engine, **args)
+                
+                # Debug: show if patches were skipped due to browser engine
+                if "browser_engine" in args and args["browser_engine"] in ["patchright", "camoufox"]:
+                    debug_print(f"[DEBUG] Skipped JS patches for {gate.name} (browser_engine={args['browser_engine']})")
+                elif not patch_names:
+                    debug_print(f"[DEBUG] No JS patches for {gate.name}")
+                else:
+                    debug_print(f"[DEBUG] Got {len(patch_names)} JS patches for {gate.name}: {patch_names}")
                 
                 # Apply each patch with merged template variables
                 for patch_name in patch_names:
@@ -221,15 +234,6 @@ class SpoofingManager:
             
             rendered = rendered.replace(placeholder, str(var_value))
         
-        # Apply Python format() only for known template files that explicitly use Python format syntax
-        # Currently only spoof_useragent.js uses {variable} format
-        if patch_name == "spoof_useragent.js":
-            try:
-                rendered = rendered.format(**template_vars)
-            except (KeyError, ValueError, IndexError) as e:
-                print(f"[WARN] Template format error in {patch_name}: {e}")
-                # Don't fail completely, just skip format step
-        
         return rendered
     
     async def setup_page_handlers(
@@ -251,6 +255,10 @@ class SpoofingManager:
         for gate in self.gates:
             if self._is_gate_enabled(gate, gate_config) and hasattr(gate, "setup_page_handlers"):
                 args = gate_config.get(gate.name, {}).copy()
+                
+                # Pass browser_engine from top-level config to each gate
+                if "browser_engine" in gate_config:
+                    args["browser_engine"] = gate_config["browser_engine"]
                 
                 # Special case: UserAgentGate needs WebGL vendor/renderer for worker spoof
                 if gate.name == "UserAgentGate":

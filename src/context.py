@@ -20,18 +20,10 @@ from playwright.async_api import Browser, BrowserContext, Playwright
 
 from src.spoof_manager import SpoofingManager
 from src.debug import debug_print
+from src.clienthints import detect_engine_from_ua, detect_os_family
 
 # ──────────────────────────────
-# Optional: httpagentparser for robust engine detection
-# ──────────────────────────────
-try:
-    import httpagentparser  # type: ignore
-    _HAS_HTTPAGENT = True
-except ImportError:  # library not installed – fallback to simple rules
-    _HAS_HTTPAGENT = False
-
-# ──────────────────────────────
-# playwright‑stealth poly‑loader (Chromium only)
+# Stealth patches application
 # ──────────────────────────────
 
 async def _build_apply_stealth():
@@ -87,23 +79,9 @@ def _load_base_profiles() -> List[Dict[str, Any]]:
 # Additional helpers
 # ──────────────────────────────
 
-def _ua_os_family(ua: str) -> str:
-    """Rough OS family detection for base‑profile filtering."""
-    low = ua.lower()
-    if "windows" in low:
-        return "windows"
-    if "mac os" in low or "macos" in low:
-        return "mac"
-    if "android" in low:
-        return "android"
-    if any(tok in low for tok in ("iphone", "ipad", "ios")):
-        return "ios"
-    if "cros" in low or "chrome os" in low:
-        return "chromeos"
-    return "linux"
 
 def _select_base_profile(ua: str) -> Dict[str, Any]:
-    os_family = _ua_os_family(ua)
+    os_family = detect_os_family(ua)
     _BASE_PROFILES = _load_base_profiles()
     candidates = [p for p in _BASE_PROFILES if os_family in p["os"]]
     if not candidates:
@@ -113,24 +91,6 @@ def _select_base_profile(ua: str) -> Dict[str, Any]:
 # ──────────────────────────────
 # Heuristic engine detection
 # ──────────────────────────────
-
-def _engine_from_ua(ua: str) -> str:
-    """Return 'chromium', 'firefox' or 'webkit'."""
-    if _HAS_HTTPAGENT:
-        parsed = httpagentparser.detect(ua)  # type: ignore
-        browser = (parsed.get("browser") or {})
-        name = (browser.get("name") or "").lower()
-        if "firefox" in name:
-            return "firefox"
-        if "safari" in name and "chrome" not in name:
-            return "webkit"
-        return "chromium"
-    low = ua.lower()
-    if "firefox" in low and "seamonkey" not in low:
-        return "firefox"
-    if "safari" in low and "chrome" not in low and "chromium" not in low:
-        return "webkit"
-    return "chromium"
 
 def _locale_from_gate(gate_args: Dict[str, Any]) -> Tuple[str, Tuple[str, ...]]:
     raw = gate_args.get("LanguageGate", {}).get("accept_language") if gate_args else None
@@ -162,7 +122,7 @@ async def create_context(
     locale, languages = _locale_from_gate(gate_args)
     tz_id = _timezone_from_gate(gate_args)
 
-    engine = _engine_from_ua(ua) if spoof_ua else "chromium"
+    engine = detect_engine_from_ua(ua) if spoof_ua else "chromium"
     launcher = getattr(playwright, engine)
     browser: Optional[Browser] = None
     context: Optional[BrowserContext] = None

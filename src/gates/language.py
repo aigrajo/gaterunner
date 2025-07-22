@@ -18,12 +18,16 @@ class LanguageGate(GateBase):
             return {"accept-language": lang_header}
         return {}
 
-    def get_js_patches(self, engine="chromium", accept_language=None, language=None, **kwargs):
+    def get_js_patches(self, engine="chromium", accept_language=None, language=None, browser_engine=None, **kwargs):
         """
         Return JavaScript patches for language spoofing.
         
         Firefox and WebKit need browser-level language spoofing.
         """
+        # Disable patches for patchright and camoufox (they have built-in stealth)
+        if browser_engine in ["patchright", "camoufox"]:
+            return []
+        
         if engine in ["firefox", "webkit"] and (accept_language or language):
             return ["fwk_stealth.js"]
         return []
