@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from src.gates import ALL_GATES
 from src.debug import debug_print
+from src.utils import TemplateLoader
 
 
 class SpoofingManager:
@@ -28,8 +29,7 @@ class SpoofingManager:
         @param gates: List of gate instances to use (defaults to ALL_GATES)
         """
         self.gates = gates or ALL_GATES
-        self.js_templates_cache = {}  # Cached JS templates
-        self.js_dir = Path(__file__).resolve().parent / "js"
+        self.template_loader = TemplateLoader()  # Shared template processing
     
     async def apply_spoofing(
         self,
@@ -194,47 +194,13 @@ class SpoofingManager:
                 # Apply each patch with merged template variables
                 for patch_name in patch_names:
                     try:
-                        js_code = self._load_and_render_template(patch_name, all_template_vars)
+                        js_code = self.template_loader.load_and_render_template(patch_name, all_template_vars)
                         await context.add_init_script(js_code)
                         debug_print(f"[DEBUG] Applied JS patch: {patch_name} (via {gate.name})")
                     except Exception as e:
                         print(f"[WARN] Failed to apply JS patch {patch_name}: {e}")
     
-    def _load_and_render_template(self, patch_name: str, template_vars: Dict[str, Any]) -> str:
-        """
-        Load a JS template file and render it with template variables.
-        
-        @param patch_name: JS file name (e.g., "spoof_useragent.js")
-        @param template_vars: Dict of variable names to values for replacement
-        @return: Rendered JavaScript code
-        """
-        
-        # Check cache first
-        if patch_name in self.js_templates_cache:
-            template = self.js_templates_cache[patch_name]
-        else:
-            # Load from file system
-            template_path = self.js_dir / patch_name
-            if not template_path.exists():
-                raise FileNotFoundError(f"JS template not found: {template_path}")
-            
-            template = template_path.read_text(encoding="utf-8")
-            self.js_templates_cache[patch_name] = template
-        
-        # Render template with variables using __PLACEHOLDER__ replacement
-        rendered = template
-        for var_name, var_value in template_vars.items():
-            # Handle variables that already have double underscore format vs those that need it added
-            if var_name.startswith("__") and var_name.endswith("__"):
-                # Variable already in __VAR__ format, use as-is
-                placeholder = var_name
-            else:
-                # Variable needs double underscore format added
-                placeholder = f"__{var_name.upper()}__"
-            
-            rendered = rendered.replace(placeholder, str(var_value))
-        
-        return rendered
+    # Template processing moved to shared TemplateLoader utility
     
     async def setup_page_handlers(
         self,

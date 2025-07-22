@@ -17,6 +17,7 @@ from httpx import HTTPStatusError
 from playwright.async_api import Error
 from playwright._impl._errors import Error as CDPError
 from src.debug import debug_print
+from src.utils import safe_filename, dedup_path
 
 # ───────────────────────── data structures ──────────────────────────
 
@@ -43,8 +44,7 @@ RESOURCE_DIRS: dict[str, str] = {
 
 # ───────────────────────── constants ──────────────────────────
 
-# Leave a little slack for parent‑dir prefix when computing max length.
-_MAX_FILENAME_LEN = 240  # 255 is the usual hard limit on most POSIX filesystems.
+# Constants moved to utils.py for shared use
 
 _FILENAME_RE = re.compile(
     r"""
@@ -118,25 +118,7 @@ def _guess_ext(ct: str) -> str:
     return ""
 
 
-def _safe_filename(stem: str, ext: str, salt: str) -> str:
-    """Return *stem* + '_' + 8‑hex‑md5 + *ext*, trimming *stem* if needed.
-
-    @param stem (str): Base filename without extension.
-    @param ext (str): File extension, including leading dot.
-    @param salt (str): Salt value used to generate deterministic MD5 suffix.
-
-    @return (str): Sanitized filename safe for saving to disk.
-    """
-
-    salt = hashlib.md5(salt.encode()).hexdigest()[:8]
-    # room for underscore between stem and salt
-    budget = _MAX_FILENAME_LEN - len(ext) - len(salt) - 1
-    if budget < 8:
-        # pathological: give up on the stem entirely.
-        return f"{salt}{ext}"
-    if len(stem) > budget:
-        stem = stem[:budget]
-    return f"{stem}_{salt}{ext}"
+# _safe_filename moved to utils.py as safe_filename
 
 
 def _fname_from_cd(cd: str | None) -> str | None:
@@ -155,14 +137,14 @@ def _fname_from_cd(cd: str | None) -> str | None:
     if m:
         raw = urllib.parse.unquote(m["enc"])
         stem, ext = os.path.splitext(os.path.basename(raw))
-        return _safe_filename(stem or "download", ext, raw)
+        return safe_filename(stem or "download", ext, raw)
 
     # 2 Legacy path: filename=
     m = _FILENAME_RE.search(cd)
     if m:
         raw_name = m.group("name").strip("\"'")
         stem, ext = os.path.splitext(os.path.basename(raw_name))
-        return _safe_filename(stem or "download", ext, raw_name)
+        return safe_filename(stem or "download", ext, raw_name)
 
     return None
 
@@ -180,7 +162,7 @@ def _fname_from_url(url: str, fallback_ext: str) -> str:
     stem, ext = os.path.splitext(os.path.basename(path) or "index")
     if not ext and fallback_ext:
         ext = fallback_ext
-    return _safe_filename(stem, ext, url)
+    return safe_filename(stem, ext, url)
 
 
 def _looks_like_download(ct: str, cd: str | None) -> bool:
@@ -276,7 +258,7 @@ async def handle_response(
 
     os.makedirs(dirpath, exist_ok=True)
 
-    fpath = _dedup(Path(dirpath) / fname)
+    fpath = dedup_path(Path(dirpath) / fname)
     resources.url_to_file[url] = os.path.relpath(fpath, out_dir)
 
     try:
@@ -391,14 +373,7 @@ async def _stream_fetch(req, dest: Path, resources=None, url=None, out_dir=None,
     except (HTTPStatusError, httpx.TransportError):
         return False
 
-def _dedup(path: Path) -> Path:
-    """Avoid clobbering when a name repeats in one crawl session."""
-    counter = 1
-    stem, ext = path.stem, path.suffix
-    while path.exists():
-        path = path.with_name(f"{stem}_{counter}{ext}")
-        counter += 1
-    return path
+# _dedup moved to utils.py as dedup_path
 
 async def enable_cdp_download_interceptor(
     page,
@@ -438,7 +413,7 @@ async def enable_cdp_download_interceptor(
                 )["stream"]
 
                 fname = _fname_from_cd(cd) or _fname_from_url(url, _guess_ext(ct))
-                dest  = _dedup(downloads_dir / fname)
+                dest  = dedup_path(downloads_dir / fname)
                 dest.parent.mkdir(parents=True, exist_ok=True)
 
                 async with aiofiles.open(dest, "wb") as fh:
@@ -491,12 +466,5 @@ async def enable_cdp_download_interceptor(
 
     cdp.on("Fetch.requestPaused", _on_paused)
 
-_MAX_SLUG_LEN = 80
-
-def _make_slug(netloc: str, path: str, max_len: int = _MAX_SLUG_LEN) -> str:
-    raw = f"{netloc}_{path}".rstrip("_")
-    tail = hashlib.md5(raw.encode()).hexdigest()[:8]   # 8-char hash keeps slugs unique
-    if len(raw) > max_len:
-        raw = raw[:max_len]
-    return f"{raw}_{tail}"
+# _make_slug moved to utils.py as make_slug
 

@@ -1,5 +1,3 @@
-from src.clienthints import parse_chromium_ua, parse_chromium_version, parse_chromium_full_version
-
 """
 context.py – create a Playwright **BrowserContext** with a JavaScript and
 network fingerprint that consistently matches the supplied User‑Agent string.
@@ -21,6 +19,7 @@ from playwright.async_api import Browser, BrowserContext, Playwright
 from src.spoof_manager import SpoofingManager
 from src.debug import debug_print
 from src.clienthints import detect_engine_from_ua, detect_os_family
+from src.utils import resolve_dynamic_gate_args
 
 # ──────────────────────────────
 # Stealth patches application
@@ -117,10 +116,14 @@ async def create_context(
 ) -> Tuple[Browser, BrowserContext]:
     """Launch a browser context with unified spoofing applied via the gate system."""
     gate_args = gate_args or {}
-    spoof_ua = gate_args.get("UserAgentGate") is not None
-    ua = gate_args["UserAgentGate"]["user_agent"] if spoof_ua else ""
-    locale, languages = _locale_from_gate(gate_args)
-    tz_id = _timezone_from_gate(gate_args)
+    
+    # FRESH RANDOMIZATION: Resolve dynamic values for this context
+    fresh_gate_args = resolve_dynamic_gate_args(gate_args)
+    
+    spoof_ua = fresh_gate_args.get("UserAgentGate") is not None
+    ua = fresh_gate_args["UserAgentGate"]["user_agent"] if spoof_ua else ""
+    locale, languages = _locale_from_gate(fresh_gate_args)
+    tz_id = _timezone_from_gate(fresh_gate_args)
 
     engine = detect_engine_from_ua(ua) if spoof_ua else "chromium"
     launcher = getattr(playwright, engine)
@@ -176,7 +179,7 @@ async def create_context(
                 "timezone_id": tz_id,
             })
 
-        geo = gate_args.get("GeolocationGate", {}).get("geolocation")
+        geo = fresh_gate_args.get("GeolocationGate", {}).get("geolocation")
         if geo is not None:
             ctx_args["geolocation"] = geo
 
@@ -187,7 +190,7 @@ async def create_context(
             spoofing_manager = SpoofingManager()
             
             # Enhanced gate configuration with additional context
-            enhanced_gate_args = gate_args.copy()
+            enhanced_gate_args = fresh_gate_args.copy()
             
             # Add network configuration if not present
             if "NetworkGate" not in enhanced_gate_args:

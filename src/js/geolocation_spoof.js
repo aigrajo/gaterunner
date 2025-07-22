@@ -77,5 +77,5 @@
     });
   }
 
-  console.log(`[GEOLOCATION] Spoofed to: ${fakeCoords.latitude}, ${fakeCoords.longitude} (±${fakeCoords.accuracy}m)`);
+  // Silent operation - no console logging to avoid detection
 })(); 

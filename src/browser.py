@@ -5,7 +5,7 @@ browser.py
 Drives Playwright, CamouFox or Patchright, captures every redirect hop,
 saves artefacts, and tallies stats: downloads / warnings / errors.
 """
-import asyncio, os, hashlib
+import asyncio, os
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlparse
@@ -71,7 +71,7 @@ class Config:
     
     def _configure_geolocation_gate(self, args):
         """Configure GeolocationGate and related gates."""
-        from src.gates.geolocation import COUNTRY_GEO, jitter_country_location
+        from src.gates.geolocation import COUNTRY_GEO
         
         if args.country:
             cc = args.country.upper()
@@ -79,7 +79,8 @@ class Config:
                 raise ValueError(f"Invalid country code: {cc}")
             
             self.gates_enabled["GeolocationGate"] = True
-            self.gate_args["GeolocationGate"] = {"geolocation": jitter_country_location(cc)}
+            # Store country code for per-context randomization instead of fixed coordinates
+            self.gate_args["GeolocationGate"] = {"country_code": cc}
             
             # Enable TimezoneGate with country code for dynamic timezone selection
             self.gates_enabled["TimezoneGate"] = True
@@ -96,20 +97,19 @@ class Config:
     
     def _configure_useragent_gate(self, args):
         """Configure UserAgentGate."""
-        from src.gates.useragent import choose_ua
         
         if args.ua_full:
             ua_value = args.ua_full.strip()
             self.gates_enabled["UserAgentGate"] = True
             self.gate_args["UserAgentGate"] = {
-                "user_agent": ua_value,
+                "user_agent": ua_value,  # Literal UA, no randomization
                 "ua_arg": ua_value,  # used later for engine selection
             }
         elif args.ua:
-            resolved_ua = choose_ua(args.ua)
             self.gates_enabled["UserAgentGate"] = True
+            # Store selector for per-context randomization instead of fixed UA
             self.gate_args["UserAgentGate"] = {
-                "user_agent": resolved_ua,
+                "ua_selector": args.ua,  # e.g., "Windows;;Chrome"
                 "ua_arg": args.ua,
             }
     
@@ -128,9 +128,19 @@ class Config:
     def detect_engine_from_ua(self) -> str:
         """Detect browser engine from user agent if available."""
         if not self.detected_engine:
-            if self.gate_args and self.gate_args.get("UserAgentGate", {}).get("user_agent"):
+            ua_gate = self.gate_args.get("UserAgentGate", {})
+            ua = ""
+            
+            # Handle literal UA (already resolved)
+            if "user_agent" in ua_gate:
+                ua = ua_gate["user_agent"]
+            # Handle selector (need to resolve for detection)
+            elif "ua_selector" in ua_gate:
+                from src.gates.useragent import choose_ua
+                ua = choose_ua(ua_gate["ua_selector"])
+            
+            if ua:
                 from src.clienthints import detect_engine_from_ua
-                ua = self.gate_args["UserAgentGate"]["user_agent"]
                 self.detected_engine = detect_engine_from_ua(ua)
             else:
                 self.detected_engine = "chromium"  # Default
@@ -139,7 +149,17 @@ class Config:
     
     def get_ua_for_engine_selection(self) -> str:
         """Get user agent string for engine selection purposes."""
-        return self.gate_args.get("UserAgentGate", {}).get("ua_arg", "")
+        ua_gate = self.gate_args.get("UserAgentGate", {})
+        
+        # Handle literal UA (--ua-full)
+        if "user_agent" in ua_gate:
+            return ua_gate["user_agent"]
+        
+        # Handle selector (--ua) - use original selector for engine detection
+        if "ua_selector" in ua_gate:
+            return ua_gate["ua_arg"]
+        
+        return ""
 
 
 # ────────────── optional engines ──────────────
@@ -165,8 +185,9 @@ from .resources import (
     save_json,
     save_screenshot,
     _fname_from_url,
-    enable_cdp_download_interceptor, _make_slug
+    enable_cdp_download_interceptor
 )
+from .utils import create_output_dir_slug
 
 from playwright._impl._errors import Error as PWError, TargetClosedError   # keeps old imports working
 
@@ -328,12 +349,7 @@ async def save_page(
     """Decide which engine to use, then delegate to *_grab*."""
 
     # ----- output dir slug -----
-    parsed = urlparse(url)
-    netloc = parsed.netloc.replace(":", "_")
-    path   = parsed.path.strip("/").replace("/", "_") or "root"
-    path = parsed.path.strip("/").replace("/", "_") or "root"
-    slug = _make_slug(netloc, path)
-    out_dir = os.path.join(os.path.dirname(out_dir), f"saved_{slug}")
+    out_dir = create_output_dir_slug(url, out_dir)
 
     pause_ms, max_scrolls = 150, config.gate_args.get("max_scrolls")
 

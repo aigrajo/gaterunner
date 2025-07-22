@@ -15,7 +15,7 @@
     return;
   }
   
-  console.log(`[TIMEZONE] Spoofing timezone to: ${targetTimezone} (with dynamic historical date support)`);
+  // Silent timezone spoofing - no console logging to avoid detection
   
   // ─────────────────────────────────────────────────────────────────
   // 1. Override Intl.DateTimeFormat APIs
@@ -94,7 +94,7 @@
       
       return offsetMinutes;
     } catch (e) {
-      console.warn('[TIMEZONE] Failed to calculate offset for date', date, 'in timezone', timezone, e);
+      // Silent error handling - avoid console warnings that could reveal automation
       return 0; // Fallback to UTC offset
     }
   }
@@ -198,6 +198,6 @@
     window.Date[method] = OriginalDate[method];
   });
   
-  console.log(`[TIMEZONE] Dynamic timezone spoofing applied successfully to: ${targetTimezone}`);
+  // Silent operation - timezone spoofing complete
   
 })(); 

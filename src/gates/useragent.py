@@ -15,6 +15,7 @@ from src.clienthints import (
 )
 from .base import GateBase
 from ..debug import debug_print
+from ..utils import TemplateLoader
 
 # ───────────────────────── types ──────────────────────────
 
@@ -42,6 +43,9 @@ def choose_ua(key: str) -> str:
 class UserAgentGate(GateBase):
     name = "UserAgentGate"
     _accept_ch_by_origin = {}
+    
+    def __init__(self):
+        self.template_loader = TemplateLoader()  # Shared template processing
 
     async def get_headers(self, user_agent=None, **kwargs):
         """
@@ -62,12 +66,7 @@ class UserAgentGate(GateBase):
         """
         Build spoofing JavaScript using external template file.
         """
-        import json, textwrap, pathlib
-        # Cache template
-        if not hasattr(self, "_worker_template"):
-            template_path = pathlib.Path(__file__).resolve().parent.parent / "js" / "worker_spoof_template.js"
-            self._worker_template = template_path.read_text(encoding="utf-8")
-        template = self._worker_template
+        import json, textwrap
         
         # Prepare values for template replacement
         uadata = kwargs.get("uadata", {})
@@ -114,10 +113,8 @@ class UserAgentGate(GateBase):
             "__TIMEZONE__": kwargs.get("timezone_id", "UTC")
         }
         
-        # Apply template replacements
-        rendered = template
-        for placeholder, value in template_vars.items():
-            rendered = rendered.replace(placeholder, str(value))
+        # Use shared template loader
+        rendered = self.template_loader.load_and_render_template("worker_spoof_template.js", template_vars)
         
         return textwrap.dedent(rendered)
 
@@ -182,7 +179,7 @@ class UserAgentGate(GateBase):
         debug_print(f"[DEBUG] GPU vars → vendor: {template_vars.get('webgl_vendor')} | renderer: {template_vars.get('webgl_renderer')}")
         # --------------------------------------------------
 
-        # Generate worker script using the same approach as the working script
+        # Generate worker script using the shared template loader
         worker_script = self.build_spoof_js("self.navigator", "self", **template_vars)
         
         # Set up worker event handlers like the working script
