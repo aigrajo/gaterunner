@@ -149,7 +149,11 @@ class UserAgentGate(GateBase):
 
             vendor   = template_vars.get("webgl_vendor", "Intel Inc.")
             renderer = template_vars.get("webgl_renderer", "Intel(R) Iris(R) Plus Graphics 640")
-            worker_init_js = self.build_spoof_js("self.navigator", "self", **template_vars)
+            # Ensure timezone_id is passed correctly to build_spoof_js
+            build_kwargs = template_vars.copy()
+            if "timezone_id" in kwargs:
+                build_kwargs["timezone_id"] = kwargs["timezone_id"]
+            worker_init_js = self.build_spoof_js("self.navigator", "self", **build_kwargs)
             await context.add_init_script(worker_init_js)
             debug_print(f"[DEBUG] Worker init script added – vendor: {vendor} | renderer: {renderer}")
             if vendor == "Intel Inc." and renderer.startswith("Intel("):
@@ -180,7 +184,11 @@ class UserAgentGate(GateBase):
         # --------------------------------------------------
 
         # Generate worker script using the shared template loader
-        worker_script = self.build_spoof_js("self.navigator", "self", **template_vars)
+        # Ensure timezone_id is passed correctly to build_spoof_js
+        build_kwargs = template_vars.copy()
+        if "timezone_id" in kwargs:
+            build_kwargs["timezone_id"] = kwargs["timezone_id"]
+        worker_script = self.build_spoof_js("self.navigator", "self", **build_kwargs)
         
         # Set up worker event handlers like the working script
         async def handle_worker(worker):
@@ -306,6 +314,7 @@ class UserAgentGate(GateBase):
             # User agent data
             "user_agent": user_agent,
             "USER_AGENT": user_agent,
+            "__USER_AGENT__": user_agent,  # For main thread navigator.userAgent spoofing
             
             # Chromium-specific data (for Python format strings in spoof_useragent.js)
             "chromium_v": chromium_v or "",

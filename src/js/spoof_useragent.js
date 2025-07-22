@@ -42,4 +42,18 @@
     get: () => spoofedUAData,
     enumerable: true
   });
+
+  // Fix main thread navigator.userAgent spoofing for CreepJS consistency
+  Object.defineProperty(Navigator.prototype, "userAgent", {
+    get: () => "__USER_AGENT__",
+    enumerable: true,
+    configurable: true
+  });
+
+  // Fix main thread navigator.appVersion spoofing for CreepJS consistency  
+  Object.defineProperty(Navigator.prototype, "appVersion", {
+    get: () => "__USER_AGENT__".replace('Mozilla/', ''),
+    enumerable: true,
+    configurable: true
+  });
 })();
