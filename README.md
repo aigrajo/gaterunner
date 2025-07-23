@@ -97,39 +97,43 @@ python -m gaterunner --headful --verbose --timeout 60 https://example.com
 ### Setup Development Environment
 
 ```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Install test dependencies only
+# Install test dependencies
 pip install -e ".[test]"
+
+# Install Playwright browsers (required for testing)
+playwright install
 ```
 
 ### Running Tests
+
+The project includes a comprehensive test suite with 127+ unit tests covering core functionality.
 
 ```bash
 # Run all tests
 python -m pytest
 
-# Run with coverage
-python -m pytest --cov=gaterunner
+# Run with coverage report
+python -m pytest --cov=gaterunner --cov-report=html
 
 # Run specific test categories
-python -m pytest -m unit
 python -m pytest tests/test_unit/
+python -m pytest tests/test_unit/gates/
+
+# Run tests in parallel (faster)
+python -m pytest -n auto
+
+# Verbose output with details
+python -m pytest -v
+
+# Stop on first failure
+python -m pytest -x
 ```
 
-### Code Quality
-
-```bash
-# Format code
-black gaterunner/ tests/
-
-# Type checking
-mypy gaterunner/
-
-# Linting
-isort gaterunner/ tests/
-```
+**Test Structure:**
+- `tests/test_unit/` - Fast unit tests (no browser dependencies)
+- `tests/conftest.py` - Shared fixtures and mock components
+- Full async testing support with proper mocking
+- 80%+ code coverage of core modules
 
 ## License
 
