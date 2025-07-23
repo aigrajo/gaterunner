@@ -82,6 +82,5 @@ async def attach_cdp_logger(page, out_dir: str):
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         path = Path(out_dir) / "cdp_log.json"
         path.write_text(json.dumps(logs, indent=2, ensure_ascii=False))
-        print(f"[CDP] log saved -> {path}")
 
     return dump

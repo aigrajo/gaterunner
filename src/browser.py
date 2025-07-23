@@ -324,66 +324,71 @@ async def _grab(                     # noqa: C901 – long but linear
     page.on("download", lambda dl: downloads.append(
         asyncio.create_task(_save_download(dl, out_dir, resources))))
 
-    # navigation (guarded)
-    print(f"[INFO] Loading page: {url}")
-    ok = await _safe_goto(page, url)
-    
-    # wait for downloads regardless of page load success
-    if downloads:
-        await asyncio.gather(*downloads, return_exceptions=True)
-
-    # Early return only after initial downloads are handled
-    if not ok:
-        print(f"[INFO] Page aborted after download intercept: {url}")
-        return
-
-    # Take screenshot immediately after page load (before user interaction)
+    # Ensure output directory exists before any timeout-prone operations
     os.makedirs(out_dir, exist_ok=True)
-    if not page.is_closed():
-        await _safe_screenshot(page, out_dir)
 
-    # optional manual phase
-    if config.interactive and not page.is_closed():
-        print("[INFO] Visible window – interact freely. Close the tab to continue.")
-        try:
-            await page.wait_for_event("close", timeout=86_400_000)  # 24 h
-        except (KeyboardInterrupt, asyncio.TimeoutError, asyncio.CancelledError):
-            print("[INFO] Interactive session ended (Ctrl-C or timeout)")
-
-    # Wait for any final downloads that may have been triggered during interaction
-    if downloads:
-        await asyncio.gather(*downloads, return_exceptions=True)
-
-    # Save all metadata AFTER interactive phase completes (captures all network activity)
     try:
-        save_json(os.path.join(out_dir, "http_request_headers.json"), resources.request_headers)
-        save_json(os.path.join(out_dir, "http_response_headers.json"), resources.response_headers)
+        # navigation (guarded)
+        print(f"[INFO] Loading page: {url}")
+        ok = await _safe_goto(page, url)
         
-        # Save cookies with error handling in case context is closed
+        # wait for downloads regardless of page load success
+        if downloads:
+            await asyncio.gather(*downloads, return_exceptions=True)
+
+        # Early return only after initial downloads are handled
+        if not ok:
+            print(f"[INFO] Page aborted after download intercept: {url}")
+            return
+
+        # Take screenshot immediately after page load (before user interaction)
+        if not page.is_closed():
+            await _safe_screenshot(page, out_dir)
+
+        # optional manual phase
+        if config.interactive and not page.is_closed():
+            print("[INFO] Visible window – interact freely. Close the tab to continue.")
+            try:
+                await page.wait_for_event("close", timeout=86_400_000)  # 24 h
+            except (KeyboardInterrupt, asyncio.TimeoutError, asyncio.CancelledError):
+                print("[INFO] Interactive session ended (Ctrl-C or timeout)")
+
+        # Wait for any final downloads that may have been triggered during interaction
+        if downloads:
+            await asyncio.gather(*downloads, return_exceptions=True)
+
+    finally:
+        # Save all metadata regardless of whether timeout or other exceptions occurred
+        # This ensures metadata is always saved even when the page times out
         try:
-            cookies = await context.cookies()
-        except Exception as e:
-            print(f"[WARN] Could not collect cookies: {e}")
-            cookies = []
-        save_json(os.path.join(out_dir, "cookies.json"), cookies)
-        
-        # Save CDP logs (this was missing!)
-        if dump_cdp:
-            await dump_cdp()
+            save_json(os.path.join(out_dir, "http_request_headers.json"), resources.request_headers)
+            save_json(os.path.join(out_dir, "http_response_headers.json"), resources.response_headers)
             
-        # Final comprehensive stats message showing all captured resources
-        print(f"[STATS] Final capture: {len(resources.urls)} resources | "
-              f"requests={len(resources.request_headers)} responses={len(resources.response_headers)} files={len(resources.url_to_file)} | "
-              f"downloads={resources.stats['downloads']} warnings={resources.stats['warnings']} errors={resources.stats['errors']}")
-              
-    except Exception as e:
-        print(f"[ERROR] Failed to save metadata: {e}")
-        # Still try to save CDP logs if possible
-        try:
+            # Save cookies with error handling in case context is closed
+            try:
+                cookies = await context.cookies()
+            except Exception as e:
+                print(f"[WARN] Could not collect cookies: {e}")
+                cookies = []
+            save_json(os.path.join(out_dir, "cookies.json"), cookies)
+            
+            # Save CDP logs
             if dump_cdp:
                 await dump_cdp()
-        except Exception:
-            pass
+                
+            # Final comprehensive stats message showing all captured resources
+            print(f"[STATS] Final capture: "
+                  f"requests={len(resources.request_headers)} responses={len(resources.response_headers)} files={len(resources.url_to_file)} | "
+                  f"downloads={resources.stats['downloads']} warnings={resources.stats['warnings']} errors={resources.stats['errors']}")
+                  
+        except Exception as e:
+            print(f"[ERROR] Failed to save metadata: {e}")
+            # Still try to save CDP logs if possible
+            try:
+                if dump_cdp:
+                    await dump_cdp()
+            except Exception:
+                pass
 
 
 # ───────────────────────── public API ──────────────────────────────
