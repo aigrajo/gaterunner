@@ -201,8 +201,21 @@ async def _safe_goto(page, url: str, *, timeout: int = 40_000) -> bool:
         await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
         return True
     except PWError as exc:
-        if "net::ERR_ABORTED" in str(exc):
+        exc_str = str(exc)
+        if "net::ERR_ABORTED" in exc_str:
             print(f"[ABORT] {url} – frame detached after download intercept")
+        elif any(ssl_error in exc_str for ssl_error in [
+            "net::ERR_CERT_", "SSL_ERROR_", "ERR_SSL_", "certificate", 
+            "ERR_CERT_AUTHORITY_INVALID", "ERR_CERT_COMMON_NAME_INVALID",
+            "ERR_CERT_DATE_INVALID", "ERR_INSECURE_RESPONSE"
+        ]):
+            print(f"[INFO] Invalid SSL certificate detected for {url} - proceeding to scrape anyway")
+            # Try navigation again - the ignore_https_errors should handle it
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                return True
+            except Exception as retry_exc:
+                print(f"[ERROR] Failed to load {url} even with SSL errors ignored: {retry_exc}")
         else:
             print(f"[ERROR] Failed to load {url}: {exc}")
         # 🔽 make sure the tab is gone, swallow any error
@@ -282,6 +295,21 @@ async def _grab(                     # noqa: C901 – long but linear
     page.on("request",  lambda r: asyncio.create_task(handle_request(r, resources)))
     page.on("response", lambda r: asyncio.create_task(
         handle_response(r, out_dir, resources)))
+    
+    # SSL certificate warning for HTTPS sites
+    ssl_warning_shown = False
+    async def check_ssl_status(response):
+        nonlocal ssl_warning_shown
+        if (not ssl_warning_shown and 
+            response.url.startswith("https://") and 
+            response.status == 200 and
+            response.request.resource_type == "document" and
+            response.request.url == url):  # Main page load
+            domain = response.url.split("//")[1].split("/")[0]
+            print(f"[INFO] Successfully loaded HTTPS site {domain} (SSL certificate verification bypassed)")
+            ssl_warning_shown = True
+    
+    page.on("response", lambda r: asyncio.create_task(check_ssl_status(r)))
     
     # Capture request headers for debugging (was previously done in duplicate apply_spoofing call)
     async def capture_request_headers(route, request):
@@ -397,7 +425,7 @@ async def save_page(
             camou_headless = True if not config.interactive else False
             async with AsyncCamoufox(headless=camou_headless,
                                      proxy=config.proxy, geoip=True) as br:
-                ctx = await br.new_context(accept_downloads=True)
+                ctx = await br.new_context(accept_downloads=True, ignore_https_errors=True)
                 await asyncio.wait_for(_run(br, ctx), timeout=config.timeout_sec)
                 return
         except Exception as e:

@@ -169,6 +169,7 @@ async def create_context(
             "viewport": {"width": screen_w, "height": screen_h},
             "screen": {"width": screen_w, "height": screen_h},
             "accept_downloads": accept_downloads,
+            "ignore_https_errors": True,  # Ignore SSL certificate errors for malicious domains
             **extra_ctx_kwargs,
         }
 
