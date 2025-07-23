@@ -349,10 +349,10 @@ class TestChooseUAFunction:
     def test_choose_ua_valid_category(self, sample_user_agents):
         """Test choosing UA from valid category."""
         with patch('builtins.open', mock_open(read_data=json.dumps(sample_user_agents))):
-            ua = choose_ua("desktop")
+            ua = choose_ua("Windows;;Chrome")
             
-            # Should return one of the desktop user agents
-            expected_uas = [item["userAgent"] for item in sample_user_agents["desktop"]]
+            # Should return one of the Windows Chrome user agents
+            expected_uas = [item["userAgent"] for item in sample_user_agents["Windows;;Chrome"]]
             assert ua in expected_uas
     
     def test_choose_ua_invalid_category(self):
@@ -374,7 +374,7 @@ class TestChooseUAFunction:
     def test_choose_ua_file_operations(self, sample_user_agents):
         """Test that choose_ua properly opens and reads the JSON file."""
         with patch('builtins.open', mock_open(read_data=json.dumps(sample_user_agents))) as mock_file:
-            choose_ua("desktop")
+            choose_ua("Windows;;Chrome")
             
             # Verify file was opened correctly
             # Check that the data file path was accessed (allow for different path formats)

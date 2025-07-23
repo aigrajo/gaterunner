@@ -112,12 +112,11 @@ class TestConfigFromArgs:
 class TestGeolocationGateConfiguration:
     """Test geolocation gate configuration."""
     
-    def test_valid_country_code(self, mock_args, sample_country_geo):
+    def test_valid_country_code(self, mock_args, valid_country_geo):
         """Test geolocation configuration with valid country code."""
         mock_args.country = "US"
         
-        with patch('gaterunner.gates.geolocation.COUNTRY_GEO', sample_country_geo):
-            config = Config.from_args(mock_args)
+        config = Config.from_args(mock_args)
         
         # Verify GeolocationGate is enabled
         assert config.gates_enabled["GeolocationGate"] == True
@@ -136,12 +135,11 @@ class TestGeolocationGateConfiguration:
             with pytest.raises(ValueError, match="Invalid country code: INVALID"):
                 Config.from_args(mock_args)
     
-    def test_lowercase_country_code(self, mock_args, sample_country_geo):
+    def test_lowercase_country_code(self, mock_args, valid_country_geo):
         """Test that lowercase country codes are handled correctly."""
         mock_args.country = "us"  # lowercase
         
-        with patch('gaterunner.gates.geolocation.COUNTRY_GEO', sample_country_geo):
-            config = Config.from_args(mock_args)
+        config = Config.from_args(mock_args)
         
         # Should be converted to uppercase
         assert config.gate_args["GeolocationGate"]["country_code"] == "US"
@@ -224,15 +222,14 @@ class TestUserAgentGateConfiguration:
 class TestConfigIntegration:
     """Integration tests for Config with multiple gates."""
     
-    def test_multiple_gates_configuration(self, mock_args, sample_country_geo):
+    def test_multiple_gates_configuration(self, mock_args, valid_country_geo):
         """Test configuration with multiple gates enabled."""
         mock_args.country = "US"
         mock_args.lang = "en-US"
         mock_args.ua_full = "Test User Agent"
         
-        with patch('gaterunner.gates.geolocation.COUNTRY_GEO', sample_country_geo):
-            with patch('gaterunner.browser._is_valid_lang', return_value=True):
-                config = Config.from_args(mock_args)
+        with patch('gaterunner.browser._is_valid_lang', return_value=True):
+            config = Config.from_args(mock_args)
         
         # Verify all gates are enabled
         assert config.gates_enabled["GeolocationGate"] == True
