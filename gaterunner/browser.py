@@ -253,7 +253,7 @@ async def _grab(                     # noqa: C901 – long but linear
     config: Config,
     *,
     pause_ms: int,
-    max_scrolls: int | None,
+    max_scrolls: Optional[int],
 ):
     """Navigate, collect artefacts, then optionally pause for user inspection."""
     

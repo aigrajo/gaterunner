@@ -11,6 +11,7 @@ import urllib
 from pathlib import Path
 from urllib.parse import urlparse
 from dataclasses import dataclass, field
+from typing import Optional
 import httpx, aiofiles
 from httpx import HTTPStatusError
 
@@ -121,12 +122,12 @@ def _guess_ext(ct: str) -> str:
 # _safe_filename moved to utils.py as safe_filename
 
 
-def _fname_from_cd(cd: str | None) -> str | None:
+def _fname_from_cd(cd: Optional[str]) -> Optional[str]:
     """Extract filename from Content-Disposition header.
 
-    @param cd (str | None): The Content-Disposition header value.
+    @param cd (Optional[str]): The Content-Disposition header value.
 
-    @return (str | None): Filename if extractable. None if not present or invalid.
+    @return (Optional[str]): Filename if extractable. None if not present or invalid.
     """
 
     if not cd:
@@ -165,11 +166,11 @@ def _fname_from_url(url: str, fallback_ext: str) -> str:
     return safe_filename(stem, ext, url)
 
 
-def _looks_like_download(ct: str, cd: str | None) -> bool:
+def _looks_like_download(ct: str, cd: Optional[str]) -> bool:
     """Check if response looks like a file download.
 
     @param ct (str): Content-Type header.
-    @param cd (str | None): Content-Disposition header.
+    @param cd (Optional[str]): Content-Disposition header.
 
     @return (bool): True if it's likely a file download. False otherwise.
     """

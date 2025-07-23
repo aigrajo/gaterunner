@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse, sys, asyncio, os, re, time, multiprocessing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 from urllib.parse import urlparse
 
 from .browser import Config
@@ -21,7 +21,7 @@ BAR_LEN = 40  # characters in the progress bar
 
 # ─── globals initialised in workers ─────────────────────────────
 _GLOBAL_ARGS = None
-_STATUS_DICT: Dict[int, str] | None = None  # pid -> current URL (trimmed)
+_STATUS_DICT: Optional[Dict[int, str]] = None  # pid -> current URL (trimmed)
 
 # ─── helper: filter noisy Playwright exceptions ─────────────────
 
