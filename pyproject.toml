@@ -9,10 +9,10 @@ description = "Automated web saving tool that captures complete webpages using P
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "aigrajo"}
 ]
 maintainers = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "aigrajo"}
 ]
 keywords = [
     "web-scraping", 
@@ -89,10 +89,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/gaterunner"
-Repository = "https://github.com/yourusername/gaterunner"
-Documentation = "https://github.com/yourusername/gaterunner#readme"
-"Bug Tracker" = "https://github.com/yourusername/gaterunner/issues"
+Homepage = "https://github.com/aigrajo/gaterunner"
+Repository = "https://github.com/aigrajo/gaterunner"
+Documentation = "https://github.com/aigrajo/gaterunner#readme"
+"Bug Tracker" = "https://github.com/aigrajo/gaterunner/issues"
 
 [project.scripts]
 gaterunner = "gaterunner.cli:main"

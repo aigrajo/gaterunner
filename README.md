@@ -118,7 +118,18 @@ python -m pytest -m unit
 python -m pytest tests/test_unit/
 ```
 
+### Code Quality
 
+```bash
+# Format code
+black gaterunner/ tests/
+
+# Type checking
+mypy gaterunner/
+
+# Linting
+isort gaterunner/ tests/
+```
 
 ## License
 
