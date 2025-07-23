@@ -14,7 +14,7 @@ A sophisticated browser fingerprinting evasion tool that captures complete webpa
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/gaterunner.git
+git clone https://github.com/aigrajo/gaterunner.git
 cd gaterunner
 pip install -e .
 playwright install
