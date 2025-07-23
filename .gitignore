@@ -8,3 +8,20 @@ scripts/
 logs/
 zips/
 .venv
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Test artifacts  
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Other common artifacts
+*.pyc
+*.pyo
+*.pyd
+.Python
+.DS_Store

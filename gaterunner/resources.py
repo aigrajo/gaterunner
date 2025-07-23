@@ -16,8 +16,8 @@ from httpx import HTTPStatusError
 
 from playwright.async_api import Error
 from playwright._impl._errors import Error as CDPError
-from src.debug import debug_print
-from src.utils import safe_filename, dedup_path
+from gaterunner.debug import debug_print
+from gaterunner.utils import safe_filename, dedup_path
 
 # ───────────────────────── data structures ──────────────────────────
 

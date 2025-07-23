@@ -71,7 +71,7 @@ class Config:
     
     def _configure_geolocation_gate(self, args):
         """Configure GeolocationGate and related gates."""
-        from src.gates.geolocation import COUNTRY_GEO
+        from gaterunner.gates.geolocation import COUNTRY_GEO
         
         if args.country:
             cc = args.country.upper()
@@ -136,11 +136,11 @@ class Config:
                 ua = ua_gate["user_agent"]
             # Handle selector (need to resolve for detection)
             elif "ua_selector" in ua_gate:
-                from src.gates.useragent import choose_ua
+                from gaterunner.gates.useragent import choose_ua
                 ua = choose_ua(ua_gate["ua_selector"])
             
             if ua:
-                from src.clienthints import detect_engine_from_ua
+                from gaterunner.clienthints import detect_engine_from_ua
                 self.detected_engine = detect_engine_from_ua(ua)
             else:
                 self.detected_engine = "chromium"  # Default

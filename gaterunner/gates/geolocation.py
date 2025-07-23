@@ -1,5 +1,6 @@
 import csv
 import random
+from pathlib import Path
 from typing import Union, Dict
 
 from shapely import wkt
@@ -18,7 +19,9 @@ CountryGeo = dict[str, Union[float, int, BaseGeometry]]
 
 COUNTRY_GEO: dict[str, CountryGeo] = {}
 
-with open('src/data/country_geo.csv', newline='') as csvfile:
+# Get data file relative to this module
+_DATA_DIR = Path(__file__).parent.parent / "data"
+with open(_DATA_DIR / 'country_geo.csv', newline='') as csvfile:
     reader = csv.reader(csvfile)
     next(reader)
     for row in reader:

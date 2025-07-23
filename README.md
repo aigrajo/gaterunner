@@ -1,42 +1,125 @@
 # Gaterunner
 
-**Gaterunner** is an automated web saving tool that captures complete webpages using Playwright. Designed specifically to bypass malicious TDS gating to follow attack chains and capture its resources in the process.
+A sophisticated browser fingerprinting evasion tool that captures complete webpages using Playwright. Designed specifically to bypass malicious TDS gating, follow attack chains, and capture resources while evading detection.
 
-## Setup
+## Features
 
-Install dependencies:
+- **Multi-Engine Support**: Automatically selects between Playwright, CamouFox, and Patchright
+- **Advanced Fingerprinting Evasion**: Comprehensive spoofing of user agents, geolocation, timezones, WebGL, fonts, and more
+- **Parallel Processing**: Multi-worker support for batch URL processing
+- **Complete Page Capture**: Saves HTML, resources, and tracks redirects
+- **Proxy Support**: SOCKS5 and HTTP proxy integration
+- **Headless/Headful Modes**: Invisible processing or visible browser windows
+
+## Installation
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/your-username/gaterunner.git
+cd gaterunner
+pip install -e .
 playwright install
 ```
 
-## Usage
+## Quick Start
 
-Gaterunner allows obfuscated URLs. Running this command will save data to `./data/default/saved_example.com`
+### Single URL
 ```bash
-python main.py hxxps[:]//example[.]com
-```
-To run Gaterunner on a list of urls, run:
-```bash
-python main.py urls.txt
-```
+# Basic usage
+python -m gaterunner https://example.com
 
-The `--workers N` flag runs `N` instances of **Gaterunner** in parallel. Since website behavior tends to vary widely, it's best to allocate workers conservatively. Debug statements are represented differently in parallel mode:
-```bash
-python main.py urls.txt --workers 3
-[----------------------------------------] 00% | 11:03 (0/100)
-[W-1] http://website1.com
-[W-2] http://website2.com
-[W-3] http://website3.com
+# With spoofing options
+python -m gaterunner --country US --lang en-US https://example.com
 ```
 
-**Gaterunner**'s default engine dynamically spoofs a large list of fingerprintable values using a user agent string as a seed. If you pass `"OS;;Engine"`, **Gaterunner** will randomly select a user agent string that matches the criteria. You can also pass a specific user agent string
+### Multiple URLs
 ```bash
-python main.py https://example.com --ua "Windows;;Chrome"
-python main.py https://example.com --ua-full "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+# Serial processing
+python -m gaterunner urls.txt
+
+# Parallel processing with 4 workers
+python -m gaterunner --workers 4 urls.txt
+```
+
+### Programmatic Usage
+```python
+from gaterunner import Config, save_page
+import asyncio
+
+async def main():
+    config = Config(
+        engine="auto",
+        timeout_sec=30,
+        verbose=True
+    )
+    
+    await save_page(
+        url="https://example.com",
+        output_dir="./output",
+        config=config
+    )
+
+asyncio.run(main())
+```
+
+## Configuration
+
+### Command Line Options
+
+| Option | Description |
+|--------|-------------|
+| `--country CODE` | ISO country code for geolocation spoofing (e.g., `US`, `DE`) |
+| `--ua TEMPLATE` | User agent template (e.g., `Windows;;Chrome`) |
+| `--ua-full UA` | Literal user agent string |
+| `--lang LANG` | Accept-Language header (e.g., `en-US`, `fr-FR`) |
+| `--proxy URL` | Proxy server (`socks5://host:port` or `http://host:port`) |
+| `--engine ENGINE` | Browser engine: `auto`, `playwright`, `camoufox`, `patchright` |
+| `--headful` | Show browser window instead of headless mode |
+| `--timeout SEC` | Per-page timeout in seconds (default: 30) |
+| `--workers N` | Number of parallel workers (default: 1) |
+| `--verbose` | Enable debug output |
+| `--output-dir DIR` | Output directory (default: `./data`) |
+
+### Configuration Examples
+
+```bash
+# Spoof US location with Chrome on Windows
+python -m gaterunner --country US --ua "Windows;;Chrome" https://example.com
+
+# Use Tor proxy with French locale
+python -m gaterunner --proxy socks5://127.0.0.1:9050 --lang fr-FR https://example.com
+
+# Headful mode with verbose logging
+python -m gaterunner --headful --verbose --timeout 60 https://example.com
+```
+
+## Development
+
+### Setup Development Environment
+
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Install test dependencies only
+pip install -e ".[test]"
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+python -m pytest
+
+# Run with coverage
+python -m pytest --cov=gaterunner
+
+# Run specific test categories
+python -m pytest -m unit
+python -m pytest tests/test_unit/
 ```
 
 
 
-2 more engines are integrated into **Gaterunner**.  `--engine camoufox` ([Camoufox](https://github.com/daijro/camoufox)) is a stealth browser forked from Firefox that is undetectable by fingerprinting and bot detection. It has built-in stealth features, so **Gaterunner** disables its own stealth patches when using Camoufox. `--engine patchright` ([Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright)) is a stealth-focused fork of Playwright. It has built-in stealth capabilities, so **Gaterunner** disables its own patches when using Patchright. `--engine playwright` (default) uses standard Playwright with **Gaterunner**'s comprehensive stealth patches for maximum fingerprinting protection. 
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details. 

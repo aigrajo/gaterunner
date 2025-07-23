@@ -16,10 +16,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from functools import lru_cache
 from playwright.async_api import Browser, BrowserContext, Playwright
 
-from src.spoof_manager import SpoofingManager
-from src.debug import debug_print
-from src.clienthints import detect_engine_from_ua, detect_os_family
-from src.utils import resolve_dynamic_gate_args
+from gaterunner.spoof_manager import SpoofingManager
+from gaterunner.debug import debug_print
+from gaterunner.clienthints import detect_engine_from_ua, detect_os_family
+from gaterunner.utils import resolve_dynamic_gate_args
 
 # ──────────────────────────────
 # Stealth patches application
@@ -61,7 +61,7 @@ _DEFAULT_UA = (
     "Chrome/125.0.0.0 Safari/537.36"
 )
 
-_BASE_PROFILES_PATH = Path("src/data/base_profiles.json")
+_BASE_PROFILES_PATH = Path(__file__).parent / "data" / "base_profiles.json"
 
 @lru_cache(maxsize=1)
 def _load_base_profiles() -> List[Dict[str, Any]]:

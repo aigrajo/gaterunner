@@ -159,7 +159,7 @@ def resolve_dynamic_gate_args(gate_args: Dict[str, Any]) -> Dict[str, Any]:
     # Handle geolocation randomization
     if ("GeolocationGate" in resolved and 
         "country_code" in resolved["GeolocationGate"]):
-        from src.gates.geolocation import jitter_country_location
+        from gaterunner.gates.geolocation import jitter_country_location
         cc = resolved["GeolocationGate"]["country_code"]
         resolved["GeolocationGate"] = {
             **resolved["GeolocationGate"],
@@ -169,7 +169,7 @@ def resolve_dynamic_gate_args(gate_args: Dict[str, Any]) -> Dict[str, Any]:
     # Handle user agent randomization  
     if ("UserAgentGate" in resolved and 
         "ua_selector" in resolved["UserAgentGate"]):
-        from src.gates.useragent import choose_ua
+        from gaterunner.gates.useragent import choose_ua
         selector = resolved["UserAgentGate"]["ua_selector"]
         resolved["UserAgentGate"] = {
             **resolved["UserAgentGate"],

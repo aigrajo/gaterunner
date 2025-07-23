@@ -2,9 +2,10 @@
 import asyncio
 import json
 import random
+from pathlib import Path
 from typing import Dict
 
-from src.clienthints import (
+from gaterunner.clienthints import (
     send_ch,
     generate_sec_ch_ua,
     extract_high_entropy_hints,
@@ -31,7 +32,9 @@ def choose_ua(key: str) -> str:
     @return (str): A random User-Agent string.
     @raise ValueError: If the category key is missing or empty.
     """
-    with open('src/data/user-agents.json', newline='') as jsonfile:
+    # Get data file relative to this module
+    data_file = Path(__file__).parent.parent / "data" / "user-agents.json"
+    with open(data_file, newline='') as jsonfile:
         ua_data: dict[str, list[UserAgentEntry]] = json.load(jsonfile)
 
     if key not in ua_data or not ua_data[key]:

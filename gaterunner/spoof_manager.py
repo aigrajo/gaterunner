@@ -9,9 +9,9 @@ import asyncio
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.gates import ALL_GATES
-from src.debug import debug_print
-from src.utils import TemplateLoader
+from gaterunner.gates import ALL_GATES
+from gaterunner.debug import debug_print
+from gaterunner.utils import TemplateLoader
 
 
 class SpoofingManager:

@@ -1,3 +1,9 @@
+"""
+Command-line interface for Gaterunner.
+
+This module contains all the CLI argument parsing and main execution logic.
+"""
+
 from __future__ import annotations
 
 import argparse, sys, asyncio, os, re, time, multiprocessing
@@ -6,10 +12,10 @@ from pathlib import Path
 from typing import List, Dict
 from urllib.parse import urlparse
 
-from src.browser import Config
-from src.resources import ResourceData
-from src.browser import save_page
-from src.debug import set_verbose
+from .browser import Config
+from .resources import ResourceData
+from .browser import save_page
+from .debug import set_verbose
 
 BAR_LEN = 40  # characters in the progress bar
 
@@ -301,7 +307,3 @@ def main():
 
     if not config.plain_progress:
         print("\nRun finished. Logs in ./logs/" + run_id)
-
-
-if __name__ == "__main__":
-    main()

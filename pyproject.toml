@@ -1,0 +1,146 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gaterunner"
+version = "1.0.0"
+description = "Automated web saving tool that captures complete webpages using Playwright, designed to bypass malicious TDS gating"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+maintainers = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = [
+    "web-scraping", 
+    "playwright", 
+    "browser-automation", 
+    "malware-analysis", 
+    "tds-bypass",
+    "fingerprinting-evasion"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+]
+requires-python = ">=3.8"
+
+# Core production dependencies
+dependencies = [
+    "playwright~=1.52.0",
+    "beautifulsoup4~=4.13.4",
+    "shapely~=2.1.1",
+    "pyproj~=3.7.1",
+    "ua-parser~=1.0.1",
+    "timezonefinder~=6.5.9",
+    "httpagentparser~=1.9.5",
+    "camoufox~=0.4.11",
+    "camoufox[geoip]",
+    "patchright~=1.52.5",
+    "httpx~=0.28.1",
+    "aiofiles~=24.1.0",
+    "yara-python~=4.5.4",
+    "pyvirtualdisplay",
+]
+
+[project.optional-dependencies]
+# Testing dependencies
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "coverage>=7.2.0",
+    "pytest-mock>=3.11.0",
+    "pytest-xdist>=3.3.0",
+    "pytest-html>=3.2.0",
+    "pytest-sugar>=0.9.7",
+    "pytest-clarity>=1.0.1",
+    "anyio>=3.7.0",
+    "pytest-testmon>=2.0.0",
+    "pytest-watch>=4.2.0",
+]
+
+# Development dependencies (includes test dependencies only)
+dev = [
+    # Include all test dependencies
+    "gaterunner[test]",
+]
+
+# Documentation dependencies
+docs = [
+    "sphinx>=6.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+    "myst-parser>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/gaterunner"
+Repository = "https://github.com/yourusername/gaterunner"
+Documentation = "https://github.com/yourusername/gaterunner#readme"
+"Bug Tracker" = "https://github.com/yourusername/gaterunner/issues"
+
+[project.scripts]
+gaterunner = "gaterunner.cli:main"
+
+[tool.setuptools]
+packages = ["gaterunner"]
+
+[tool.setuptools.package-data]
+"gaterunner.data" = ["*.json", "*.csv", "*.tab"]
+"gaterunner.js" = ["*.js"]
+
+# Test configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings"
+]
+markers = [
+    "slow: marks tests as slow (may require network access)",
+    "e2e: marks tests as end-to-end (requires browser automation)",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests (default)",
+]
+minversion = "6.0"
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["gaterunner"]
+omit = [
+    "tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+ 
