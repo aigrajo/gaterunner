@@ -15,7 +15,7 @@ BAR_LEN = 40  # characters in the progress bar
 
 # ─── globals initialised in workers ─────────────────────────────
 _GLOBAL_ARGS = None
-_STATUS_DICT: Dict[int, str] | None = None  # pid → current URL (trimmed)
+_STATUS_DICT: Dict[int, str] | None = None  # pid -> current URL (trimmed)
 
 # ─── helper: filter noisy Playwright exceptions ─────────────────
 

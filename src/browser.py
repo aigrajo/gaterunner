@@ -5,18 +5,18 @@ browser.py
 Drives Playwright, CamouFox or Patchright, captures every redirect hop,
 saves artefacts, and tallies stats: downloads / warnings / errors.
 """
-import asyncio, os
+import asyncio
+import os
 from contextlib import suppress
-from pathlib import Path
-from urllib.parse import urlparse
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
-from playwright._impl._errors import TargetClosedError
-from playwright.async_api import async_playwright as async_pw, Error
+from playwright.async_api import async_playwright as async_pw
 
 from .cdp_logger import attach_cdp_logger
 from .debug import debug_print
+
 
 # ───────────────────────── data structures ──────────────────────────
 
@@ -162,19 +162,9 @@ class Config:
         return ""
 
 
-# ────────────── optional engines ──────────────
-try:
-    from camoufox.async_api import AsyncCamoufox          # type: ignore
-    _HAS_CAMOUFOX = True
-except ImportError:
-    _HAS_CAMOUFOX = False
-
-try:
-    from patchright.async_api import async_playwright as async_patchright  # type: ignore
-    _HAS_PATCHRIGHT = True
-except ImportError:
-    _HAS_PATCHRIGHT = False
-    async_patchright = None  # type: ignore
+# ────────────── required engines ──────────────
+from camoufox.async_api import AsyncCamoufox          # type: ignore
+from patchright.async_api import async_playwright as async_patchright  # type: ignore
 
 from .context import create_context
 from .spoof_manager import SpoofingManager
@@ -183,7 +173,6 @@ from .resources import (
     handle_request,
     handle_response,
     save_json,
-    save_screenshot,
     _fname_from_url,
     enable_cdp_download_interceptor
 )
@@ -218,7 +207,7 @@ async def _safe_goto(page, url: str, *, timeout: int = 40_000) -> bool:
                 print(f"[ERROR] Failed to load {url} even with SSL errors ignored: {retry_exc}")
         else:
             print(f"[ERROR] Failed to load {url}: {exc}")
-        # 🔽 make sure the tab is gone, swallow any error
+        # make sure the tab is gone, swallow any error
         with suppress(Exception):
             await page.close()
         return False
@@ -423,7 +412,7 @@ async def save_page(
 
     # ---------- CamouFox branch ----------
     orig_display = os.environ.get("DISPLAY")          # preserve outer Xvfb
-    if (_HAS_CAMOUFOX and not force_playwright and
+    if (not force_playwright and
             (want_camoufox or ("firefox" in ua.lower() and not want_patchright))):
         try:
             print("[INFO] Launching CamouFox")
@@ -447,7 +436,7 @@ async def save_page(
             print("Falling back.")
 
     # ---------- Patchright branch ----------
-    if _HAS_PATCHRIGHT and want_patchright and not force_playwright:
+    if want_patchright and not force_playwright:
         try:
             print("[INFO] Launching Patchright")
             async with async_patchright() as p:
