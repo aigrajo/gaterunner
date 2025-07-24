@@ -1,13 +1,31 @@
 """
 utils.py - Shared utilities for template processing and file path handling
 
-Consolidates commonly used functionality across multiple modules.
+This module consolidates commonly used functionality across multiple modules:
+
+Template Processing:
+- TemplateLoader: Handles JavaScript template loading and variable substitution
+- Supports __PLACEHOLDER__ style variable replacement with caching
+
+File Path Utilities:
+- safe_filename(): Creates filesystem-safe filenames with MD5 deduplication
+- make_slug(): Generates URL-based directory slugs  
+- dedup_path(): Prevents file overwrites with counter suffixes
+- create_output_dir_slug(): Creates output directories from URLs
+
+Gate Configuration:
+- resolve_dynamic_gate_args(): Converts selection criteria to randomized values
 """
 
 import hashlib
 import os
 from pathlib import Path
 from typing import Dict, Any
+
+# ─── Constants ───────────────────────────────────────────────
+# Leave a little slack for parent-dir prefix when computing max length.
+MAX_FILENAME_LEN = 240  # 255 is the usual hard limit on most POSIX filesystems.
+MAX_SLUG_LEN = 80  # Default maximum length for URL-based slugs
 
 
 # ───────────────────────── Template Processing ──────────────────────────
@@ -17,7 +35,15 @@ class TemplateLoader:
     Shared template loading and rendering utility.
     
     Consolidates template processing logic that was duplicated between
-    SpoofingManager and UserAgentGate.
+    SpoofingManager and UserAgentGate. Provides caching and validation
+    for JavaScript template files.
+    
+    Example usage:
+        loader = TemplateLoader()
+        js_code = loader.load_and_render_template(
+            "spoof_useragent.js", 
+            {"__USER_AGENT__": "Mozilla/5.0..."}
+        )
     """
     
     def __init__(self, js_dir: Path = None):
@@ -28,6 +54,10 @@ class TemplateLoader:
         """
         self.js_dir = js_dir or Path(__file__).resolve().parent / "js"
         self.js_templates_cache = {}  # Cached JS templates
+        
+        # Validate js_dir exists
+        if not self.js_dir.exists():
+            raise FileNotFoundError(f"JavaScript templates directory not found: {self.js_dir}")
     
     def load_and_render_template(self, patch_name: str, template_vars: Dict[str, Any]) -> str:
         """
@@ -36,7 +66,12 @@ class TemplateLoader:
         @param patch_name: JS file name (e.g., "spoof_useragent.js")
         @param template_vars: Dict of variable names to values for replacement
         @return: Rendered JavaScript code
+        @raises FileNotFoundError: If template file doesn't exist
+        @raises ValueError: If template_vars is not a dict
         """
+        
+        if not isinstance(template_vars, dict):
+            raise ValueError("template_vars must be a dictionary")
         
         # Check cache first
         if patch_name in self.js_templates_cache:
@@ -69,7 +104,7 @@ class TemplateLoader:
 # ───────────────────────── File Path Utilities ──────────────────────────
 
 # Leave a little slack for parent-dir prefix when computing max length.
-_MAX_FILENAME_LEN = 240  # 255 is the usual hard limit on most POSIX filesystems.
+_MAX_FILENAME_LEN = MAX_FILENAME_LEN
 
 def safe_filename(stem: str, ext: str, salt: str) -> str:
     """Return *stem* + '_' + 8-hex-md5 + *ext*, trimming *stem* if needed.
@@ -79,7 +114,11 @@ def safe_filename(stem: str, ext: str, salt: str) -> str:
     @param salt (str): Salt value used to generate deterministic MD5 suffix.
 
     @return (str): Sanitized filename safe for saving to disk.
+    @raises ValueError: If inputs are invalid
     """
+    
+    if not isinstance(stem, str) or not isinstance(ext, str) or not isinstance(salt, str):
+        raise ValueError("All parameters must be strings")
 
     salt_hash = hashlib.md5(salt.encode()).hexdigest()[:8]
     # room for underscore between stem and salt
@@ -92,7 +131,7 @@ def safe_filename(stem: str, ext: str, salt: str) -> str:
     return f"{stem}_{salt_hash}{ext}"
 
 
-def make_slug(netloc: str, path: str, max_len: int = 80) -> str:
+def make_slug(netloc: str, path: str, max_len: int = MAX_SLUG_LEN) -> str:
     """
     Create a filesystem-safe slug from netloc and path components.
     
@@ -100,7 +139,13 @@ def make_slug(netloc: str, path: str, max_len: int = 80) -> str:
     @param path: Path part of URL  
     @param max_len: Maximum length for the slug
     @return: Sanitized slug with hash suffix for uniqueness
+    @raises ValueError: If inputs are invalid
     """
+    if not isinstance(netloc, str) or not isinstance(path, str):
+        raise ValueError("netloc and path must be strings")
+    if max_len < 16:  # Need room for hash
+        raise ValueError("max_len must be at least 16")
+        
     raw = f"{netloc}_{path}".rstrip("_")
     tail = hashlib.md5(raw.encode()).hexdigest()[:8]   # 8-char hash keeps slugs unique
     if len(raw) > max_len:

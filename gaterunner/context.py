@@ -1,9 +1,29 @@
 """
-context.py – create a Playwright **BrowserContext** with a JavaScript and
-network fingerprint that consistently matches the supplied User‑Agent string.
+context.py – Browser context creation with fingerprint consistency
 
-Uses the unified spoofing system to orchestrate both HTTP-level and browser-level
-fingerprinting through the gate architecture.
+Creates Playwright BrowserContext instances with JavaScript and network fingerprints
+that consistently match the supplied User-Agent string. Uses the unified spoofing 
+system to orchestrate both HTTP-level and browser-level fingerprinting through 
+the gate architecture.
+
+Key features:
+- Automatic profile selection based on User-Agent
+- Randomized hardware characteristics (screen, memory, CPU cores)
+- WebGL vendor/renderer selection
+- Timezone and geolocation coordination
+- Multi-engine support (Chromium, Firefox, WebKit)
+
+Example usage:
+    async with async_playwright() as p:
+        browser, ctx = await create_context(
+            p,
+            gate_args={
+                "UserAgentGate": {"user_agent": "Mozilla/5.0 (Windows NT 10.0...)"},
+                "GeolocationGate": {"country_code": "US"}
+            },
+            proxy={"server": "socks5://localhost:1080"},
+            headless=False
+        )
 """
 
 import asyncio

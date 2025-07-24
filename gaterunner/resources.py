@@ -1,5 +1,15 @@
 """
-resources.py – save network responses and metadata
+resources.py – Network response handling and resource management
+
+This module handles:
+- Intercepting and saving network responses (images, scripts, stylesheets, etc.)
+- Managing HTTP headers and cookies
+- Handling file downloads via CDP (Chrome DevTools Protocol)
+- Providing fallback HTTP fetching when Playwright body access fails
+- Organizing saved resources into appropriate directory structures
+
+Key classes:
+- ResourceData: Tracks all captured resources and metadata
 """
 
 
@@ -19,6 +29,11 @@ from playwright.async_api import Error
 from playwright._impl._errors import Error as CDPError
 from gaterunner.debug import debug_print
 from gaterunner.utils import safe_filename, dedup_path
+
+# ─── Constants ───────────────────────────────────────────────
+HTTP_FETCH_TIMEOUT_SEC = 30  # Timeout for fallback HTTP requests
+STREAM_CHUNK_SIZE = 65536  # Streaming download chunk size
+MAX_URL_LOG_LENGTH = 80  # Truncate URLs in logs for readability
 
 # ───────────────────────── data structures ──────────────────────────
 
@@ -86,9 +101,9 @@ def _validate_metadata_completeness(url: str, resources: ResourceData, context: 
         missing.append("response_headers")
     
     if missing:
-        print(f"[WARN] {context} Missing metadata for {url[:80]}…: {', '.join(missing)}")
+        print(f"[WARN] {context} Missing metadata for {url[:MAX_URL_LOG_LENGTH]}…: {', '.join(missing)}")
     else:
-        debug_print(f"[DEBUG] {context} Complete metadata saved for {url[:80]}…")
+        debug_print(f"[DEBUG] {context} Complete metadata saved for {url[:MAX_URL_LOG_LENGTH]}…")
 
 
 def _guess_ext(ct: str) -> str:
@@ -231,7 +246,7 @@ async def handle_response(
     
     # If file was already saved by CDP interceptor, we're done
     if response.url in resources.url_to_file:
-        debug_print(f"[DEBUG] Metadata updated for CDP-saved file: {url[:80]}…")
+        debug_print(f"[DEBUG] Metadata updated for CDP-saved file: {url[:MAX_URL_LOG_LENGTH]}…")
         _validate_metadata_completeness(url, resources, "handle_response_post_cdp")
         return
 
@@ -285,7 +300,7 @@ async def handle_response(
                 _validate_metadata_completeness(url, resources, "fallback_fetch")
             else:
                 resources.stats["errors"] += 1
-                print(f"[ERROR] Fallback fetch failed for {url[:80]}…")
+                print(f"[ERROR] Fallback fetch failed for {url[:MAX_URL_LOG_LENGTH]}…")
             return
         resources.stats["errors"] += 1
         print(f"[ERROR] Could not save {url}: {e}")
@@ -323,7 +338,7 @@ async def save_screenshot(page, out_dir: str):
     except Exception:
         print("[WARN] screenshot failed (page closed)")
 
-async def _stream_fetch(req, dest: Path, resources=None, url=None, out_dir=None, timeout: int = 30):
+async def _stream_fetch(req, dest: Path, resources=None, url=None, out_dir=None, timeout: int = HTTP_FETCH_TIMEOUT_SEC):
     """Replay the original request outside DevTools, keeping method, body, cookies."""
     url = url or req.url
     method = req.method
@@ -351,7 +366,7 @@ async def _stream_fetch(req, dest: Path, resources=None, url=None, out_dir=None,
             if r.status_code >= 400:  # server returned error page
                 return False
             async with aiofiles.open(dest, "wb") as fh:
-                async for chunk in r.aiter_bytes(65536):
+                async for chunk in r.aiter_bytes(STREAM_CHUNK_SIZE):
                     await fh.write(chunk)
             
             # Update metadata if resources object provided
@@ -443,7 +458,7 @@ async def enable_cdp_download_interceptor(
                 saved = True
 
             except Exception as e:
-                print(f"[WARN] stream save failed ({url[:80]}…): {e}")
+                print(f"[WARN] stream save failed ({url[:MAX_URL_LOG_LENGTH]}…): {e}")
 
         try:
             if want:
@@ -462,7 +477,7 @@ async def enable_cdp_download_interceptor(
         except CDPError as err:                        # ← updated line
             if "Invalid InterceptionId" not in str(err):
                 raise
-            print(f"[INFO] Request vanished before continue/fulfill – {url[:80]}")
+            print(f"[INFO] Request vanished before continue/fulfill – {url[:MAX_URL_LOG_LENGTH]}")
 
 
     cdp.on("Fetch.requestPaused", _on_paused)

@@ -20,6 +20,23 @@ class SpoofingManager:
     
     Uses the gate system to orchestrate header spoofing, request routing,
     and browser API patching in a consistent, modular way.
+    
+    Example usage:
+        # Basic usage
+        manager = SpoofingManager()
+        await manager.apply_spoofing(
+            page=page,
+            context=context,
+            gate_config={
+                "UserAgentGate": {"user_agent": "Mozilla/5.0..."},
+                "GeolocationGate": {"country_code": "US"}
+            },
+            engine="chromium"
+        )
+        
+        # With custom gates
+        custom_gates = [UserAgentGate(), GeolocationGate()]
+        manager = SpoofingManager(gates=custom_gates)
     """
     
     def __init__(self, gates=None):
@@ -27,7 +44,11 @@ class SpoofingManager:
         Initialize the spoofing manager.
         
         @param gates: List of gate instances to use (defaults to ALL_GATES)
+        @raises ValueError: If gates is not a list or None
         """
+        if gates is not None and not isinstance(gates, list):
+            raise ValueError("gates must be a list or None")
+            
         self.gates = gates or ALL_GATES
         self.template_loader = TemplateLoader()  # Shared template processing
     
@@ -49,7 +70,11 @@ class SpoofingManager:
         @param engine: Browser engine ("chromium", "firefox", "webkit")
         @param url: Target URL for gate processing
         @param resource_request_headers: Dict to store captured headers by URL
+        @raises ValueError: If engine is not supported
         """
+        if engine not in ("chromium", "firefox", "webkit"):
+            raise ValueError(f"Unsupported browser engine: {engine}")
+            
         gate_config = gate_config or {}
         
         # 1. Apply HTTP-level spoofing (headers, permissions, routing)

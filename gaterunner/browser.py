@@ -18,24 +18,54 @@ from .cdp_logger import attach_cdp_logger
 from .debug import debug_print
 
 
+# ─── Constants ───────────────────────────────────────────────
+DEFAULT_CONTEXT_TIMEOUT_MS = 40_000  # Default page navigation timeout
+MAX_INTERACTIVE_TIMEOUT_MS = 86_400_000  # 24 hours for interactive sessions
+DEFAULT_CHUNK_SIZE = 65536  # HTTP streaming chunk size
+DEFAULT_TIMEOUT_SEC = 30  # Default page timeout in seconds
+DEFAULT_INTERACTIVE_TIMEOUT_SEC = 86_400  # Default timeout for interactive mode (24 hours)
+DEFAULT_OUTPUT_DIR = "./data"  # Default output directory
+DEFAULT_LANGUAGE = "en-US"  # Default language
+
 # ───────────────────────── data structures ──────────────────────────
 
 @dataclass
 class Config:
-    """Centralized configuration for all gaterunner functionality."""
+    """Centralized configuration for all gaterunner functionality.
+    
+    Example usage:
+        # From command line arguments
+        config = Config.from_args(parsed_args)
+        
+        # Programmatic usage
+        config = Config(
+            engine="playwright",
+            timeout_sec=60,
+            verbose=True,
+            gates_enabled={"GeolocationGate": True}
+        )
+        
+    Environment variables:
+        GATERUNNER_PROXY: Default proxy server
+        GATERUNNER_TIMEOUT: Default timeout in seconds
+        GATERUNNER_OUTPUT_DIR: Default output directory
+        GATERUNNER_VERBOSE: Enable verbose output (1/true/yes)
+    """
     
     # ─── Application Configuration ───
     engine: str = "auto"
     headless: bool = False
     interactive: bool = False
-    timeout_sec: int = 30
-    verbose: bool = False
-    output_dir: str = "./data"
+    timeout_sec: int = field(default_factory=lambda: int(os.getenv("GATERUNNER_TIMEOUT", DEFAULT_TIMEOUT_SEC)))
+    verbose: bool = field(default_factory=lambda: os.getenv("GATERUNNER_VERBOSE", "").lower() in ("1", "true", "yes"))
+    output_dir: str = field(default_factory=lambda: os.getenv("GATERUNNER_OUTPUT_DIR", DEFAULT_OUTPUT_DIR))
     plain_progress: bool = False
     workers: Optional[int] = None
     
     # ─── Network Configuration ───
-    proxy: Optional[dict] = None
+    proxy: Optional[dict] = field(default_factory=lambda: 
+        {"server": os.getenv("GATERUNNER_PROXY")} if os.getenv("GATERUNNER_PROXY") else None
+    )
     
     # ─── Gate Configuration (Spoofing Settings) ───
     gates_enabled: dict = field(default_factory=dict)
@@ -46,20 +76,46 @@ class Config:
     
     @classmethod
     def from_args(cls, args) -> 'Config':
-        """Create a Config instance from command line arguments."""
+        """Create a Config instance from command line arguments.
+        
+        @param args: Parsed command line arguments
+        @return: Configured Config instance
+        @raises ValueError: If arguments are invalid
+        """
         config = cls()
         
         # Application settings
         config.engine = args.engine
         config.interactive = args.headful
-        config.timeout_sec = int(args.timeout)
+        
+        # Handle timeout logic based on headful mode and explicit timeout
+        timeout_was_explicitly_set = hasattr(args, 'timeout') and args.timeout != str(DEFAULT_TIMEOUT_SEC)
+        
+        if config.interactive and not timeout_was_explicitly_set:
+            # --headful without explicit --timeout -> use long timeout (1 day)
+            config.timeout_sec = DEFAULT_INTERACTIVE_TIMEOUT_SEC
+        else:
+            # Explicit --timeout provided OR headless mode -> use specified/default timeout
+            try:
+                config.timeout_sec = int(args.timeout)
+                if config.timeout_sec <= 0:
+                    raise ValueError("Timeout must be positive")
+            except ValueError:
+                raise ValueError(f"Invalid timeout value: {args.timeout}")
+            
         config.verbose = args.verbose
         config.output_dir = args.output_dir
         config.plain_progress = args.plain_progress
         config.workers = args.workers
         
-        # Network settings
-        if args.proxy and _is_valid_proxy(args.proxy):
+        # Validate workers
+        if config.workers is not None and config.workers < 1:
+            raise ValueError("Workers must be at least 1")
+        
+        # Network settings - override environment if provided
+        if args.proxy:
+            if not _is_valid_proxy(args.proxy):
+                raise ValueError(f"Invalid proxy format: {args.proxy}")
             config.proxy = {"server": args.proxy}
         
         # Gate configuration
@@ -162,6 +218,18 @@ class Config:
         return ""
 
 
+# Make constants available for import by other modules
+__all__ = [
+    "Config", 
+    "save_page", 
+    "DEFAULT_TIMEOUT_SEC", 
+    "DEFAULT_INTERACTIVE_TIMEOUT_SEC",
+    "DEFAULT_OUTPUT_DIR", 
+    "DEFAULT_LANGUAGE",
+    "DEFAULT_CONTEXT_TIMEOUT_MS",
+    "MAX_INTERACTIVE_TIMEOUT_MS"
+]
+
 # ────────────── required engines ──────────────
 from camoufox.async_api import AsyncCamoufox          # type: ignore
 from patchright.async_api import async_playwright as async_patchright  # type: ignore
@@ -180,7 +248,7 @@ from .utils import create_output_dir_slug
 
 from playwright._impl._errors import Error as PWError, TargetClosedError   # keeps old imports working
 
-async def _safe_goto(page, url: str, *, timeout: int = 40_000) -> bool:
+async def _safe_goto(page, url: str, *, timeout: int = DEFAULT_CONTEXT_TIMEOUT_MS) -> bool:
     """Navigate and swallow frame-detached / aborted errors.
 
     Returns True on success, False when the page aborted (usually because
@@ -338,7 +406,7 @@ async def _grab(                     # noqa: C901 – long but linear
         if config.interactive and not page.is_closed():
             print("[INFO] Visible window – interact freely. Close the tab to continue.")
             try:
-                await page.wait_for_event("close", timeout=86_400_000)  # 24 h
+                await page.wait_for_event("close", timeout=MAX_INTERACTIVE_TIMEOUT_MS)  # 24 h
             except (KeyboardInterrupt, asyncio.TimeoutError, asyncio.CancelledError):
                 print("[INFO] Interactive session ended (Ctrl-C or timeout)")
 

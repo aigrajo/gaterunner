@@ -6,18 +6,25 @@ This module contains all the CLI argument parsing and main execution logic.
 
 from __future__ import annotations
 
-import argparse, sys, asyncio, os, re, time, multiprocessing
+import argparse
+import asyncio
+import multiprocessing
+import os
+import re
+import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
-from .browser import Config
-from .resources import ResourceData
-from .browser import save_page
+from .browser import Config, save_page, DEFAULT_TIMEOUT_SEC, DEFAULT_OUTPUT_DIR, DEFAULT_LANGUAGE
 from .debug import set_verbose
+from .resources import ResourceData
 
+# ─── Constants ───────────────────────────────────────────────
 BAR_LEN = 40  # characters in the progress bar
+MAX_WORKER_LOG_LINES = 1000  # prevent memory bloat in long runs
 
 # ─── globals initialised in workers ─────────────────────────────
 _GLOBAL_ARGS = None
@@ -178,9 +185,10 @@ def run_batch_serial(urls: List[str], config: Config):
         sys.stdout.flush()
     print()
 
-# ─── main ───────────────────────────────────────────────────────
+# ─── argument parsing helpers ───────────────────────────────
 
-def main():
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create and configure the command line argument parser."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "input",
@@ -204,7 +212,7 @@ def main():
 
     parser.add_argument(
         "--lang",
-        default="en-US",
+        default=DEFAULT_LANGUAGE,
         help="Primary Accept‑Language header (e.g. 'fr-FR'); defaults to 'en-US'",
     )
 
@@ -228,7 +236,7 @@ def main():
 
     parser.add_argument(
         "--timeout",
-        default="30",
+        default=str(DEFAULT_TIMEOUT_SEC),
         help="Per‑page timeout in seconds; set higher for slow sites",
     )
 
@@ -246,7 +254,7 @@ def main():
 
     parser.add_argument(
         "--output-dir",
-        default="./data",
+        default=DEFAULT_OUTPUT_DIR,
         help="Base directory for saving files; defaults to './data'",
     )
 
@@ -255,21 +263,59 @@ def main():
         action="store_true",
         help="Enable debug output; prints all [DEBUG] statements",
     )
+    
+    return parser
 
-    args = parser.parse_args()
 
-    target = deobfuscate_url(args.input.strip())
+def process_input_target(input_arg: str) -> tuple[bool, str | List[str]]:
+    """
+    Process the input argument to determine if it's a URL or file with URLs.
+    
+    @param input_arg: Input argument from command line
+    @return: Tuple of (is_single_url, url_or_url_list)
+    """
+    target = deobfuscate_url(input_arg.strip())
+    
     if is_valid_url(target):
-        run_single_url_from_args(target, args)
-        return
-
-    if not os.path.isfile(args.input.strip()):
+        return True, target
+    
+    if not os.path.isfile(input_arg.strip()):
         print("[ERROR] Input must be a URL or file path.")
         sys.exit(1)
 
-    with open(args.input.strip()) as f:
+    with open(input_arg.strip()) as f:
         urls = [ln.strip() for ln in f if ln.strip()]
+    
+    return False, urls
 
+
+def setup_parallel_processing(config: Config) -> str:
+    """
+    Set up environment for parallel processing.
+    
+    @param config: Configuration object
+    @return: Run ID for logging
+    """
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    os.environ["RUN_ID"] = run_id
+    return run_id
+
+def main():
+    """Main entry point for the Gaterunner CLI."""
+    parser = create_argument_parser()
+    args = parser.parse_args()
+
+    # Process input to determine if single URL or batch
+    is_single_url, target_data = process_input_target(args.input)
+    
+    if is_single_url:
+        # Single URL processing
+        run_single_url_from_args(target_data, args)
+        return
+
+    # Batch processing
+    urls = target_data
+    
     # Build configuration for batch processing
     try:
         config = Config.from_args(args)
@@ -277,15 +323,15 @@ def main():
         print(f"[ERROR] {e}")
         sys.exit(1)
 
-    # ── serial mode ────────────────────────────────────────────
+    # Choose processing mode
     if not config.workers or config.workers < 2:
+        # Serial mode
         run_batch_serial(urls, config)
         return
 
-    # ── parallel mode ─────────────────────────────────────────
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    os.environ["RUN_ID"] = run_id
-
+    # Parallel mode
+    run_id = setup_parallel_processing(config)
+    
     manager = multiprocessing.Manager()
     status_dict = manager.dict()
 
